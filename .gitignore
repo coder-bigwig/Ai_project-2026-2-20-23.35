@@ -12,3 +12,5 @@ tmp_*.pdf
 tmp_*.csv
 tmp_*.html
 .tmp_*.html
+
+_pack_check/
