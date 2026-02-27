@@ -1,0 +1,275 @@
+.user-management {
+    background: #fff;
+    padding: 24px;
+    border-radius: 8px;
+    color: #303133;
+}
+
+.user-role-switch {
+    display: inline-flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    background: #f5f7fa;
+    padding: 6px;
+    border-radius: 8px;
+}
+
+.user-role-switch button {
+    border: 1px solid #dcdfe6;
+    background: #fff;
+    color: #606266;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.user-role-switch button.active {
+    border-color: #409eff;
+    background: #409eff;
+    color: #fff;
+}
+
+.user-static-tag {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: #f4f4f5;
+    color: #909399;
+    font-size: 12px;
+}
+
+.user-management-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    gap: 12px;
+}
+
+.user-management-toolbar h2 {
+    margin: 0;
+    font-size: 18px;
+    color: #303133;
+}
+
+.user-management-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.user-management-actions button,
+.user-filters button,
+.user-pagination button,
+.user-modal-actions button,
+.class-create-row button,
+.class-import-template-actions button,
+.class-import-input-row button {
+    padding: 8px 12px;
+    border: none;
+    border-radius: 4px;
+    background: #409eff;
+    color: #fff;
+    cursor: pointer;
+}
+
+.user-management-actions button:hover,
+.user-filters button:hover,
+.user-pagination button:hover,
+.user-modal-actions button:hover,
+.class-create-row button:hover,
+.class-import-template-actions button:hover,
+.class-import-input-row button:hover {
+    background: #66b1ff;
+}
+
+.user-filters {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.user-filters input,
+.user-filters select,
+.class-create-row input {
+    padding: 8px 10px;
+    border: 1px solid #dcdfe6;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.user-filters input {
+    min-width: 220px;
+}
+
+.user-filters select {
+    min-width: 180px;
+}
+
+.user-table-wrap {
+    border: 1px solid #ebeef5;
+    border-radius: 6px;
+    overflow-x: auto;
+}
+
+.user-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.user-table th,
+.user-table td {
+    border-bottom: 1px solid #ebeef5;
+    padding: 10px 12px;
+    font-size: 14px;
+    text-align: left;
+}
+
+.user-table th {
+    background: #f5f7fa;
+    color: #606266;
+}
+
+.user-table td button {
+    margin-right: 8px;
+    padding: 6px 10px;
+    border: none;
+    border-radius: 4px;
+    background: #ecf5ff;
+    color: #409eff;
+    cursor: pointer;
+}
+
+.user-table td .danger-btn {
+    background: #fef0f0;
+    color: #f56c6c;
+}
+
+.user-placeholder {
+    padding: 28px;
+    text-align: center;
+    color: #909399;
+}
+
+.user-pagination {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+    margin-top: 14px;
+    color: #606266;
+}
+
+.user-pagination button:disabled {
+    background: #c0c4cc;
+    cursor: not-allowed;
+}
+
+.user-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1200;
+}
+
+.user-modal {
+    width: min(900px, 94vw);
+    max-height: 86vh;
+    overflow-y: auto;
+    background: #fff;
+    border-radius: 8px;
+    padding: 18px;
+}
+
+.user-modal h3 {
+    margin-top: 0;
+}
+
+.user-modal-actions {
+    margin-top: 14px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.class-create-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.class-create-row input {
+    flex: 1;
+}
+
+.class-import-panel {
+    border: 1px solid #e6ebf1;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 14px;
+    background: #f9fbff;
+}
+
+.class-import-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+    color: #606266;
+    font-size: 13px;
+}
+
+.class-import-template-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.class-import-input-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.import-file-name {
+    margin-top: 10px;
+    font-size: 13px;
+    color: #606266;
+}
+
+.import-result {
+    margin-top: 14px;
+    padding: 10px 12px;
+    background: #f8f9fb;
+    border: 1px solid #e6ebf1;
+    border-radius: 6px;
+}
+
+.import-result p {
+    margin: 4px 0;
+    color: #303133;
+}
+
+.import-errors {
+    margin-top: 8px;
+}
+
+.import-errors h4 {
+    margin: 0 0 8px;
+}
+
+.import-errors ul {
+    margin: 0;
+    padding-left: 18px;
+}

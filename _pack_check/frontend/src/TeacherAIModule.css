@@ -1,0 +1,178 @@
+.teacher-ai-module {
+    display: grid;
+    gap: 14px;
+}
+
+.teacher-ai-card {
+    background: #ffffff;
+    border: 1px solid #d9e4ef;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(29, 76, 116, 0.08);
+    padding: 16px 18px;
+}
+
+.teacher-ai-card h2 {
+    margin: 0;
+    font-size: 20px;
+    color: #234469;
+}
+
+.teacher-ai-card h3 {
+    margin: 0;
+    font-size: 17px;
+    color: #2d4f74;
+}
+
+.teacher-ai-card p {
+    margin: 8px 0 0;
+    color: #5b6f88;
+    font-size: 14px;
+}
+
+.teacher-ai-form-grid {
+    margin-top: 14px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+}
+
+.teacher-ai-form-grid label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #395673;
+}
+
+.teacher-ai-form-grid input,
+.teacher-ai-form-grid textarea {
+    width: 100%;
+    border: 1px solid #cbd9e8;
+    border-radius: 8px;
+    padding: 9px 11px;
+    font-size: 14px;
+    color: #213b57;
+    background: #fbfdff;
+}
+
+.teacher-ai-form-grid input:focus,
+.teacher-ai-form-grid textarea:focus {
+    border-color: #4f86c6;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(79, 134, 198, 0.16);
+}
+
+.teacher-ai-form-grid textarea {
+    resize: vertical;
+    min-height: 84px;
+}
+
+.teacher-ai-key-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+}
+
+.teacher-ai-key-row button {
+    border: 1px solid #bdd0e6;
+    border-radius: 8px;
+    background: #f0f6fc;
+    color: #2e5a84;
+    padding: 0 12px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.teacher-ai-actions {
+    margin-top: 14px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.teacher-ai-actions button {
+    border: 1px solid #c2d4e9;
+    border-radius: 8px;
+    background: #f4f9ff;
+    color: #2f557d;
+    padding: 8px 14px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.teacher-ai-actions button.primary {
+    background: linear-gradient(135deg, #2583ce 0%, #1f6fb0 100%);
+    border-color: #1f6fb0;
+    color: #ffffff;
+}
+
+.teacher-ai-actions button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.teacher-ai-test-inline {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.teacher-ai-test-inline select {
+    border: 1px solid #c2d4e9;
+    border-radius: 8px;
+    background: #f4f9ff;
+    color: #2f557d;
+    padding: 8px 10px;
+    font-size: 13px;
+}
+
+.teacher-ai-notice {
+    margin: 10px 0 0;
+    font-size: 13px;
+    line-height: 1.5;
+    padding: 8px 10px;
+    border-radius: 8px;
+}
+
+.teacher-ai-notice.success {
+    color: #226742;
+    background: #edf9f1;
+    border: 1px solid #b8e4c8;
+}
+
+.teacher-ai-notice.error {
+    color: #8a2a2a;
+    background: #fff1f1;
+    border: 1px solid #f0c7c7;
+}
+
+.teacher-ai-card.compact ul {
+    margin: 10px 0 0;
+    padding-left: 20px;
+    color: #4d647f;
+    line-height: 1.7;
+}
+
+@media (max-width: 768px) {
+    .teacher-ai-card {
+        padding: 14px;
+    }
+
+    .teacher-ai-actions {
+        display: grid;
+        grid-template-columns: 1fr;
+    }
+
+    .teacher-ai-actions button {
+        width: 100%;
+    }
+
+    .teacher-ai-test-inline {
+        display: grid;
+        grid-template-columns: 1fr;
+        width: 100%;
+    }
+
+    .teacher-ai-test-inline select {
+        width: 100%;
+    }
+}

@@ -1,0 +1,22 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'jupyterhub'
+    metrics_path: '/jupyter/hub/metrics'
+    static_configs:
+      - targets: ['jupyterhub:8000']
+    
+  - job_name: 'backend'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['experiment-manager:8000']
+      
+  # 监控主机（如果开启node-exporter）
+  # - job_name: 'node'
+  #   static_configs:
+  #     - targets: ['node-exporter:9100']

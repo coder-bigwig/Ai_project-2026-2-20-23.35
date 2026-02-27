@@ -1,9 +1,17 @@
 # init_db.py - 数据库初始化脚本
 
+import asyncio
 import os
 import requests
 import time
+import uuid
 from datetime import datetime, timedelta
+
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from app.main import _hash_password
+from app.repositories.user_repository import AuthUserRepository
+from app.storage_config import DATABASE_URL
 
 API_URL = "http://localhost:8000/api"
 
@@ -38,6 +46,109 @@ INITIAL_EXPERIMENTS = [
     }
 ]
 
+def resolve_seed_creator() -> str:
+    """优先使用管理员账号作为实验创建者，避免权限不足。"""
+    preferred = (os.getenv("SEED_CREATOR") or "").strip()
+    if preferred:
+        return preferred
+
+    admin_accounts = (os.getenv("ADMIN_ACCOUNTS") or "").strip()
+    for candidate in admin_accounts.split(","):
+        username = candidate.strip()
+        if username:
+            return username
+
+    teacher_accounts = (os.getenv("TEACHER_ACCOUNTS") or "").strip()
+    for candidate in teacher_accounts.split(","):
+        username = candidate.strip()
+        if username:
+            return username
+
+    return "fit_admin"
+
+
+def _to_async_driver_url(raw_url: str) -> str:
+    url = (raw_url or "").strip()
+    if url.startswith("postgresql+asyncpg://"):
+        return url
+    if url.startswith("postgres://"):
+        return "postgresql+asyncpg://" + url[len("postgres://") :]
+    if url.startswith("postgresql://"):
+        return "postgresql+asyncpg://" + url[len("postgresql://") :]
+    return url
+
+
+def _parse_accounts(raw: str) -> list[str]:
+    return [item.strip() for item in str(raw or "").split(",") if item.strip()]
+
+
+async def ensure_default_auth_users() -> None:
+    """首次空库时写入默认 admin/teacher 账号，避免初始化实验时报权限不足。"""
+    async_url = _to_async_driver_url(DATABASE_URL)
+    if not async_url:
+        raise RuntimeError("DATABASE_URL 未配置，无法初始化默认账号")
+
+    admins = _parse_accounts(os.getenv("ADMIN_ACCOUNTS", "fit_admin"))
+    teachers = _parse_accounts(
+        os.getenv("TEACHER_ACCOUNTS", "teacher_001,teacher_002,teacher_003,teacher_004,teacher_005")
+    )
+    default_password = os.getenv("DEFAULT_PASSWORD", "fit350506")
+    default_hash = _hash_password(default_password)
+
+    engine = create_async_engine(async_url, pool_pre_ping=True, future=True)
+    session_maker = async_sessionmaker(engine, expire_on_commit=False)
+    created_count = 0
+    updated_count = 0
+    try:
+        async with session_maker() as db:
+            repo = AuthUserRepository(db)
+
+            async def upsert_user(username: str, role: str):
+                nonlocal created_count, updated_count
+                existing = await repo.get_by_login_identifier(username)
+                if existing is not None:
+                    changed = False
+                    if (existing.role or "").lower() != role:
+                        existing.role = role
+                        changed = True
+                    if not (existing.password_hash or "").strip():
+                        existing.password_hash = default_hash
+                        changed = True
+                    if not existing.is_active:
+                        existing.is_active = True
+                        changed = True
+                    if not (existing.username or "").strip():
+                        existing.username = username
+                        changed = True
+                    if changed:
+                        updated_count += 1
+                    return
+
+                await repo.upsert_by_email(
+                    {
+                        "id": str(uuid.uuid4()),
+                        "email": f"{username}@local.test",
+                        "username": username,
+                        "role": role,
+                        "password_hash": default_hash,
+                        "is_active": True,
+                        "created_at": datetime.now(),
+                        "updated_at": datetime.now(),
+                    }
+                )
+                created_count += 1
+
+            for username in admins:
+                await upsert_user(username, "admin")
+            for username in teachers:
+                await upsert_user(username, "teacher")
+
+            await db.commit()
+    finally:
+        await engine.dispose()
+
+    print(f"默认账号检查完成: 新建 {created_count}，更新 {updated_count}")
+
 def wait_for_api():
     """等待 API 服务启动"""
     print("等待 API 服务启动...")
@@ -59,10 +170,14 @@ def wait_for_api():
 
 def init_data():
     """初始化数据"""
+    asyncio.run(ensure_default_auth_users())
+
     if not wait_for_api():
         return
 
     print("开始初始化实验数据...")
+    seed_creator = resolve_seed_creator()
+    print(f"使用创建者账号: {seed_creator}")
     
     try:
         # 检查是否已有数据
@@ -75,14 +190,14 @@ def init_data():
 
         # 创建新实验
         for exp in INITIAL_EXPERIMENTS:
-            exp["created_by"] = "admin"  # 这里假设 created_by 是必需的
-            # 注意：datetime 对象已经转换为 isoformat 字符串
-            
-            resp = requests.post(f"{API_URL}/experiments", json=exp)
+            payload = dict(exp)
+            payload["created_by"] = seed_creator
+
+            resp = requests.post(f"{API_URL}/experiments", json=payload)
             if resp.status_code == 200:
-                print(f"成功创建实验: {exp['title']}")
+                print(f"成功创建实验: {payload['title']}")
             else:
-                print(f"创建实验失败: {exp['title']}, 错误: {resp.text}")
+                print(f"创建实验失败: {payload['title']}, 错误: {resp.text}")
                 
         print("数据初始化完成!")
         
