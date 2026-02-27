@@ -265,7 +265,7 @@ function TeacherUserManagement({ username, userRole }) {
     };
 
     const handleResetPassword = async (studentId) => {
-        if (!window.confirm(`确认将 ${studentId} 的密码重置为 123456 吗？`)) return;
+        if (!window.confirm(`确认将 ${studentId} 的密码重置为系统默认密码吗？`)) return;
         try {
             await axios.post(`${API_BASE_URL}/api/admin/students/${studentId}/reset-password`, null, {
                 params: { teacher_username: username }
@@ -337,7 +337,7 @@ function TeacherUserManagement({ username, userRole }) {
             setNewTeacherRealName('');
             setShowTeacherModal(false);
             await loadTeachers();
-            alert('教师账号创建成功，初始密码为 123456');
+            alert('教师账号创建成功，初始密码为系统默认密码（以服务器 DEFAULT_PASSWORD 为准）');
         } catch (error) {
             alert(error.response?.data?.detail || '创建教师失败');
         }
