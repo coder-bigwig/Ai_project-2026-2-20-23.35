@@ -1,0 +1,16 @@
+__pycache__/
+node_modules/
+*.log
+*.txt
+.env
+.DS_Store
+dist/
+build/
+coverage/
+jdbc-drivers/
+tmp_*.pdf
+tmp_*.csv
+tmp_*.html
+.tmp_*.html
+
+_pack_check/

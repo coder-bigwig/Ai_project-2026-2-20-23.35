@@ -1,0 +1,196 @@
+.workspace-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.workspace-header {
+    height: 50px;
+    background-color: #001529;
+    color: white;
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    justify-content: space-between;
+}
+
+.workspace-header h2 {
+    margin: 0;
+    font-size: 1.2rem;
+    font-weight: 500;
+}
+
+.back-btn {
+    background: none;
+    border: 1px solid #1890ff;
+    color: #1890ff;
+    padding: 5px 15px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.3s;
+}
+
+.back-btn:hover {
+    background: #1890ff;
+    color: white;
+}
+
+.workspace-split {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.left-pane,
+.right-pane {
+    height: 100%;
+    overflow: hidden;
+}
+
+.left-pane {
+    background-color: #f0f2f5;
+    border-right: 1px solid #ddd;
+}
+
+.right-pane {
+    background-color: white;
+}
+
+.gutter {
+    background-color: #eee;
+    background-repeat: no-repeat;
+    background-position: 50%;
+}
+
+.gutter.gutter-horizontal {
+    background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAeCAYAAADkftS9AAAAIklEQVQoU2M4c+bMfxAGAgYYmwGrIIiDjrELjpo5aiZeMwF+yNnOs5KSvgAAAABJRU5ErkJggg==');
+    cursor: col-resize;
+}
+
+.jupyter-iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+}
+
+.doc-tabs {
+    display: flex;
+    gap: 8px;
+    padding: 10px;
+    border-bottom: 1px solid #d9e2ee;
+    background: #f6f9fc;
+    overflow-x: auto;
+}
+
+.doc-tab-btn {
+    border: 1px solid #bfd3ea;
+    background: #ffffff;
+    color: #3c5f86;
+    border-radius: 999px;
+    padding: 6px 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    font-size: 13px;
+}
+
+.doc-tab-btn.active {
+    background: #e7f2ff;
+    border-color: #7eb0de;
+    color: #1768a6;
+    font-weight: 600;
+}
+
+.ppt-preview-wrapper {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: #f4f6fa;
+}
+
+.ppt-preview-host {
+    height: 100%;
+    overflow: auto;
+    padding: 12px;
+}
+
+.ppt-office-iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    flex: 1;
+    background: #fff;
+}
+
+.ppt-preview-tip {
+    border-top: 1px solid #d9e2ee;
+    background: #f9fbfe;
+    font-size: 12px;
+    color: #5f6f81;
+    padding: 8px 12px;
+}
+
+.ppt-preview-tip a {
+    margin-left: 8px;
+    color: #1677c8;
+}
+
+.no-doc {
+    padding: 20px;
+    text-align: center;
+    color: #666;
+}
+
+.loading-pane {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    font-size: 1.2rem;
+    color: #999;
+}
+
+.no-preview {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 20px;
+    background-color: #f9f9f9;
+}
+
+.file-icon {
+    font-size: 48px;
+    margin-bottom: 20px;
+}
+
+.download-btn {
+    display: inline-block;
+    padding: 8px 20px;
+    background-color: #1890ff;
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
+    margin-top: 20px;
+    transition: background 0.3s;
+}
+
+.download-btn:hover {
+    background-color: #40a9ff;
+    color: white;
+}
+
+.workspace-text-preview {
+    height: 100%;
+    overflow: auto;
+    margin: 0;
+    padding: 16px;
+    background: #ffffff;
+    color: #1f2d3d;
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}

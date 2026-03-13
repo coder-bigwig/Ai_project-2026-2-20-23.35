@@ -1,0 +1,294 @@
+﻿FROM jupyter/scipy-notebook:latest
+
+USER root
+
+# Base tools
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    vim \
+    && rm -rf /var/lib/apt/lists/*
+
+USER ${NB_UID}
+
+# Teaching extensions
+RUN pip install --no-cache-dir \
+    jupyterlab-language-pack-zh-CN \
+    nbgrader \
+    jupyterlab_execute_time
+
+# AI assistant dependencies
+RUN pip install --no-cache-dir \
+    openai \
+    langchain \
+    requests
+
+# Official Jupyter AI plugin (latest stable on PyPI as of 2026-02)
+RUN pip install --no-cache-dir \
+    jupyter-ai==2.31.7
+
+# Jupyter AI 2.x depends on langchain 0.3.x. Pin the matching langchain-openai
+# line so OpenAI-compatible providers (e.g. DeepSeek) load correctly.
+RUN pip install --no-cache-dir \
+    langchain-openai==0.3.35
+
+# Best-effort: if RTC/docprovider extensions are present, disable them to avoid
+# workspace restore hangs in iframe + JupyterHub proxy mode. Stable 2.x may not
+# install these packages, so failures are ignored.
+RUN jupyter server extension disable jupyter_server_documents --sys-prefix || true; \
+    jupyter labextension disable @jupyter/collaboration-extension --level=sys_prefix --no-build || true; \
+    jupyter labextension disable @jupyter-ai-contrib/server-documents --level=sys_prefix --no-build || true; \
+    jupyter labextension disable @jupyter/docprovider-extension --level=sys_prefix --no-build || true
+
+# Seed a Jupyter AI default config on notebook startup (per-container, no API key baked
+# into the image). This preselects a DeepSeek OpenAI-compatible model when a key exists.
+USER root
+RUN python - <<'PY'
+from pathlib import Path
+
+script = r"""#!/bin/bash
+
+_training_jai_finish() {
+  return 0 2>/dev/null || exit 0
+}
+
+HOME_DIR="${HOME:-/home/jovyan}"
+CONFIG_DIR="${HOME_DIR}/.local/share/jupyter/jupyter_ai"
+CONFIG_FILE="${CONFIG_DIR}/config.json"
+
+deepseek_base="${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
+deepseek_model="${DEEPSEEK_MODEL:-deepseek-chat}"
+openai_base="${OPENAI_API_BASE:-${OPENAI_BASE_URL:-}}"
+effective_openai_api_key="${OPENAI_API_KEY:-${DEEPSEEK_API_KEY:-}}"
+
+if [ -z "${openai_base}" ]; then
+  case "${deepseek_base%/}" in
+    */chat/completions)
+      openai_base="${deepseek_base%/chat/completions}"
+      ;;
+    */v1)
+      openai_base="${deepseek_base%/}"
+      ;;
+    *)
+      openai_base="${deepseek_base%/}/v1"
+      ;;
+  esac
+fi
+
+provider_model_id="openai-chat-custom:${deepseek_model}"
+
+mkdir -p "${CONFIG_DIR}"
+export CONFIG_FILE PROVIDER_MODEL_ID="${provider_model_id}" OPENAI_BASE="${openai_base}" EFFECTIVE_OPENAI_API_KEY="${effective_openai_api_key}"
+if [ -n "${effective_openai_api_key}" ]; then
+  export HAS_OPENAI_API_KEY=1
+else
+  export HAS_OPENAI_API_KEY=0
+fi
+python - <<'PY2'
+import json
+import os
+from pathlib import Path
+
+config_file = Path(os.environ["CONFIG_FILE"])
+provider_model_id = os.environ["PROVIDER_MODEL_ID"]
+openai_base = os.environ["OPENAI_BASE"]
+openai_api_key = os.environ.get("EFFECTIVE_OPENAI_API_KEY", "")
+has_openai_api_key = os.environ.get("HAS_OPENAI_API_KEY") == "1"
+
+
+def _normalize_payload(payload):
+    payload = payload if isinstance(payload, dict) else {}
+    payload.setdefault("model_provider_id", None)
+    payload.setdefault("embeddings_provider_id", None)
+    payload.setdefault("completions_model_provider_id", None)
+    payload.setdefault("api_keys", {})
+    payload.setdefault("send_with_shift_enter", False)
+    payload.setdefault("fields", {})
+    payload.setdefault("embeddings_fields", {})
+    payload.setdefault("completions_fields", {})
+    return payload
+
+
+def _write(payload):
+    config_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+existing = None
+if config_file.exists():
+    try:
+        existing = json.loads(config_file.read_text(encoding="utf-8"))
+    except Exception:
+        existing = None
+
+# No API key: never pin a default OpenAI-compatible model. Repair previously
+# generated defaults to avoid Jupyter AI backend startup failure.
+if not has_openai_api_key:
+    if isinstance(existing, dict):
+        payload = _normalize_payload(existing)
+        current_model_id = payload.get("model_provider_id")
+        if isinstance(current_model_id, str) and current_model_id.startswith("openai-chat-custom:"):
+            payload["model_provider_id"] = None
+            fields = payload.get("fields")
+            if isinstance(fields, dict):
+                fields.pop(current_model_id, None)
+            api_keys = payload.get("api_keys")
+            if isinstance(api_keys, dict):
+                api_keys.pop("OPENAI_API_KEY", None)
+            _write(payload)
+    elif config_file.exists():
+        _write(_normalize_payload({}))
+    raise SystemExit(0)
+
+# Respect user changes when a config already exists.
+if isinstance(existing, dict) and config_file.stat().st_size > 0:
+    payload = _normalize_payload(existing)
+    current_model_id = payload.get("model_provider_id")
+    api_keys = payload.get("api_keys")
+    # Repair previously generated OpenAI-compatible defaults that omitted api_keys.
+    if (
+        isinstance(current_model_id, str)
+        and current_model_id.startswith("openai-chat-custom:")
+        and isinstance(api_keys, dict)
+        and "OPENAI_API_KEY" not in api_keys
+        and openai_api_key
+    ):
+        api_keys["OPENAI_API_KEY"] = openai_api_key
+        _write(payload)
+    raise SystemExit(0)
+
+payload = {
+    "model_provider_id": provider_model_id,
+    "embeddings_provider_id": None,
+    "completions_model_provider_id": None,
+    "api_keys": {
+        "OPENAI_API_KEY": openai_api_key,
+    },
+    "send_with_shift_enter": False,
+    "fields": {
+        provider_model_id: {
+            "openai_api_base": openai_base,
+        }
+    },
+    "embeddings_fields": {},
+    "completions_fields": {},
+}
+_write(payload)
+PY2
+_training_jai_finish
+"""
+path = Path("/usr/local/bin/before-notebook.d/10-training-jupyter-ai-defaults.sh")
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(script, encoding="utf-8")
+path.chmod(0o755)
+print(f"wrote {path}")
+PY
+USER ${NB_UID}
+
+# CV/DL dependencies (CPU)
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+    torch \
+    torchvision \
+    torchaudio
+
+RUN pip install --no-cache-dir \
+    numpy==1.24.4 \
+    opencv-python==4.11.0.86 \
+    tensorflow-cpu==2.15.1 \
+    ultralytics \
+    transformers \
+    accelerate \
+    timm \
+    sentencepiece
+
+ENV LANG=zh_CN.UTF-8 \
+    LC_ALL=zh_CN.UTF-8
+
+RUN mkdir -p /opt/conda/share/jupyter/lab/settings && \
+    echo '{"@jupyterlab/translation-extension:plugin": {"locale": "zh_CN"}}' > /opt/conda/share/jupyter/lab/settings/overrides.json
+
+RUN python - <<'PY'
+import pathlib
+import textwrap
+import notebook
+import nbclassic
+
+custom_dirs = [
+    pathlib.Path(notebook.__file__).resolve().parent / "static" / "custom",
+    pathlib.Path(nbclassic.__file__).resolve().parent / "static" / "custom",
+]
+for custom_dir in custom_dirs:
+    custom_dir.mkdir(parents=True, exist_ok=True)
+
+patch_js = textwrap.dedent(
+    """
+    (function () {
+      if (window.__trainingWsPatched) return;
+      window.__trainingWsPatched = true;
+
+      var cfg = {};
+      try {
+        var cfgEl = document.getElementById('jupyter-config-data');
+        cfg = cfgEl ? JSON.parse(cfgEl.textContent || '{}') : {};
+      } catch (err) {
+        cfg = {};
+      }
+
+      var baseUrl = typeof cfg.baseUrl === 'string' && cfg.baseUrl ? cfg.baseUrl : '/';
+      var token = typeof cfg.token === 'string' ? cfg.token : '';
+      if (baseUrl.charAt(0) !== '/') baseUrl = '/' + baseUrl;
+      if (baseUrl.charAt(baseUrl.length - 1) !== '/') baseUrl += '/';
+
+      var NativeWebSocket = window.WebSocket;
+      if (!NativeWebSocket) return;
+
+      function rewrite(rawUrl) {
+        try {
+          var current = new URL(window.location.href);
+          var wsUrl = new URL(String(rawUrl), current.href);
+          if (!/^wss?:$/.test(wsUrl.protocol)) {
+            wsUrl.protocol = current.protocol === 'https:' ? 'wss:' : 'ws:';
+          }
+
+          var isKernelChannel = /\\/api\\/kernels\\/[^/]+\\/channels$/.test(wsUrl.pathname);
+          var isCollaborationRoom =
+            /\\/api\\/collaboration\\/room\\/.+$/.test(wsUrl.pathname) ||
+            /\\/api\\/yjs\\/.+$/.test(wsUrl.pathname);
+          var needsBaseRewrite = isKernelChannel || isCollaborationRoom;
+          var needsToken = isKernelChannel || isCollaborationRoom;
+
+          if (needsBaseRewrite && wsUrl.pathname.indexOf(baseUrl) !== 0) {
+            var path = wsUrl.pathname.charAt(0) === '/' ? wsUrl.pathname.slice(1) : wsUrl.pathname;
+            wsUrl.pathname = baseUrl + path;
+          }
+          if (needsToken && token && !wsUrl.searchParams.get('token')) {
+            wsUrl.searchParams.set('token', token);
+          }
+          return wsUrl.toString();
+        } catch (err) {
+          return rawUrl;
+        }
+      }
+
+      function PatchedWebSocket(url, protocols) {
+        var fixed = rewrite(url);
+        if (arguments.length > 1) return new NativeWebSocket(fixed, protocols);
+        return new NativeWebSocket(fixed);
+      }
+
+      PatchedWebSocket.prototype = NativeWebSocket.prototype;
+      Object.defineProperty(PatchedWebSocket, 'CONNECTING', { value: NativeWebSocket.CONNECTING });
+      Object.defineProperty(PatchedWebSocket, 'OPEN', { value: NativeWebSocket.OPEN });
+      Object.defineProperty(PatchedWebSocket, 'CLOSING', { value: NativeWebSocket.CLOSING });
+      Object.defineProperty(PatchedWebSocket, 'CLOSED', { value: NativeWebSocket.CLOSED });
+      window.WebSocket = PatchedWebSocket;
+    })();
+    """
+).strip() + "\n"
+
+for custom_dir in custom_dirs:
+    (custom_dir / "custom-preload.js").write_text(patch_js, encoding="utf-8")
+    (custom_dir / "custom.js").write_text(patch_js, encoding="utf-8")
+    print(f"patched notebook custom scripts: {custom_dir}")
+PY
+
+WORKDIR /home/jovyan/work

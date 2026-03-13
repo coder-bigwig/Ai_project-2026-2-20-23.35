@@ -1,0 +1,213 @@
+# docker-compose.server.yml
+#
+# Server deployment compose:
+# - Exposes only the portal via Nginx (default :80)
+# - Proxies JupyterHub under `/jupyter/*` (multi-tenant)
+# - Keeps Postgres/Redis internal
+# - Optionally exposes Prometheus/Grafana/AI only on 127.0.0.1 (SSH tunnel friendly)
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "${TRAINING_HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx/nginx.server.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - experiment-manager
+      - jupyterhub
+    networks:
+      - training-network
+    restart: always
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: jupyterhub
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_DB: jupyterhub
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - training-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jupyterhub" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    networks:
+      - training-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    networks:
+      - training-network
+    restart: unless-stopped
+
+  experiment-manager:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: >
+      sh -lc "uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${EXPERIMENT_MANAGER_WORKERS:-4}"
+    networks:
+      - training-network
+    volumes:
+      - training-uploads:/app/uploads
+    environment:
+      DATABASE_URL: postgresql://jupyterhub:${DB_PASSWORD:-changeme}@postgres/jupyterhub
+      POSTGRES_SCHEMA: ${POSTGRES_SCHEMA:-experiment_manager}
+      REDIS_URL: redis://redis:6379/0
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      DEFAULT_PASSWORD: ${DEFAULT_PASSWORD:-fit350506}
+      ADMIN_ACCOUNTS: ${ADMIN_ACCOUNTS:-fit_admin}
+      TEACHER_ACCOUNTS: ${TEACHER_ACCOUNTS:-teacher_001,teacher_002,teacher_003,teacher_004,teacher_005}
+
+      # JupyterHub reverse-proxied under Nginx `/jupyter/*`
+      JUPYTERHUB_INTERNAL_URL: http://jupyterhub:8000${JUPYTERHUB_BASE_URL:-/jupyter}
+      JUPYTERHUB_PUBLIC_URL: ${JUPYTERHUB_PUBLIC_URL:-/jupyter}
+      JUPYTERHUB_API_TOKEN: ${EXPERIMENT_MANAGER_API_TOKEN:-training-jhub-service-token}
+      JUPYTERHUB_REQUEST_TIMEOUT_SECONDS: ${JUPYTERHUB_REQUEST_TIMEOUT_SECONDS:-30}
+      JUPYTERHUB_START_TIMEOUT_SECONDS: ${JUPYTERHUB_START_TIMEOUT_SECONDS:-180}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  jupyterhub:
+    build:
+      context: ./jupyterhub
+      dockerfile: Dockerfile
+    volumes:
+      # Required: spawn per-user containers
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Persist hub DB + secrets
+      - jupyterhub-data:/srv/jupyterhub
+      # Override config (easy updates without rebuild)
+      - ./jupyterhub/jupyterhub_config.py:/srv/jupyterhub/jupyterhub_config.py
+    environment:
+      HUB_DB_URL: postgresql://jupyterhub:${DB_PASSWORD:-changeme}@postgres/jupyterhub
+      DOCKER_NOTEBOOK_IMAGE: training-lab:latest
+      EXPERIMENT_MANAGER_API_TOKEN: ${EXPERIMENT_MANAGER_API_TOKEN:-training-jhub-service-token}
+      ADMIN_ACCOUNTS: ${ADMIN_ACCOUNTS:-fit_admin}
+      TEACHER_ACCOUNTS: ${TEACHER_ACCOUNTS:-teacher_001,teacher_002,teacher_003,teacher_004,teacher_005}
+      # Pass AI provider settings to spawned notebook containers (for Jupyter AI plugin).
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+
+      # Must match Nginx path prefix (no trailing slash needed).
+      JUPYTERHUB_BASE_URL: ${JUPYTERHUB_BASE_URL:-/jupyter}
+      JUPYTERHUB_SPAWNER_START_TIMEOUT: ${JUPYTERHUB_SPAWNER_START_TIMEOUT:-180}
+      JUPYTERHUB_SPAWNER_HTTP_TIMEOUT: ${JUPYTERHUB_SPAWNER_HTTP_TIMEOUT:-180}
+
+      # Optional: require a shared password for Hub logins (recommended on servers).
+      DUMMY_PASSWORD: ${DUMMY_PASSWORD:-}
+    networks:
+      - training-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      lab-image-builder:
+        condition: service_completed_successfully
+      data-loader:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  lab-image-builder:
+    build:
+      context: .
+      dockerfile: Dockerfile.student
+    image: training-lab:latest
+    command: echo "Student image built successfully"
+    networks:
+      - training-network
+
+  data-loader:
+    image: alpine:latest
+    volumes:
+      - ./experiments:/src:ro
+      - course-materials:/dst
+    command: sh -c "cp -r /src/* /dst/ && echo 'Data sync complete'"
+    networks:
+      - training-network
+
+  ai-assistant:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    ports:
+      # Local-only by default (use SSH tunnel if needed)
+      - "127.0.0.1:${AI_ASSISTANT_PORT:-8002}:8000"
+    networks:
+      - training-network
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      CACHE_TTL: ${CACHE_TTL:-3600}
+      MAX_HISTORY: ${MAX_HISTORY:-10}
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    networks:
+      - training-network
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+
+  grafana:
+    image: grafana/grafana:latest
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana-dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3001}:3000"
+    networks:
+      - training-network
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+networks:
+  training-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  training-uploads:
+  jupyterhub-data:
+  prometheus-data:
+  grafana-data:
+  course-materials:
+  shared-datasets:
+
