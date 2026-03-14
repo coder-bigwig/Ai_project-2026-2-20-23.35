@@ -165,11 +165,23 @@ class AdminService:
             return owner
         return normalize_text(class_owner_map.get(student_row.class_name, ""))
 
+    @staticmethod
+    def _student_shared_teachers(student_row) -> set[str]:
+        extra = getattr(student_row, "extra", {})
+        if not isinstance(extra, dict):
+            return set()
+        raw_shared = extra.get("shared_teachers")
+        if not isinstance(raw_shared, list):
+            return set()
+        return {normalized for item in raw_shared if (normalized := normalize_text(item))}
+
     @classmethod
     def _student_visible_to_teacher(cls, student_row, teacher_username: str, role: str, class_owner_map: dict[str, str]) -> bool:
         if role == "admin":
             return True
-        return cls._student_owner_username(student_row, class_owner_map) == teacher_username
+        if cls._student_owner_username(student_row, class_owner_map) == teacher_username:
+            return True
+        return teacher_username in cls._student_shared_teachers(student_row)
 
     async def _load_resource_policy(self) -> dict:
         payload = await get_kv_json(self.db, "resource_policy", default_resource_policy_payload())
@@ -675,13 +687,19 @@ class AdminService:
 
         class_names = {item.name for item in await self._accessible_classes(normalized_teacher, role)}
         user_repo = UserRepository(self.db)
-        existing_student_ids = {normalize_text(item.student_id or item.username) for item in await user_repo.list_by_role("student")}
+        existing_student_map = {
+            normalize_text(item.student_id or item.username): item
+            for item in await user_repo.list_by_role("student")
+            if normalize_text(item.student_id or item.username)
+        }
+        existing_student_ids = set(existing_student_map.keys())
         file_student_ids = set()
         now = datetime.now()
 
         success_students = []
         errors = []
         skipped_count = 0
+        reused_count = 0
 
         for row_number, row in parsed_rows:
             student_id, real_name, class_name, organization, phone, admission_year_raw = row
@@ -701,16 +719,25 @@ class AdminService:
                 errors.append({"row": row_number, "student_id": student_id, "reason": "student id conflicts with teacher account"})
                 continue
 
-            if student_id in existing_student_ids:
-                skipped_count += 1
-                errors.append({"row": row_number, "student_id": student_id, "reason": "学号重复（系统中已存在）"})
-                continue
             if student_id in file_student_ids:
                 skipped_count += 1
                 errors.append({"row": row_number, "student_id": student_id, "reason": "duplicate student id in system"})
                 continue
 
             file_student_ids.add(student_id)
+            if student_id in existing_student_ids:
+                existing_row = existing_student_map.get(student_id)
+                if existing_row is not None:
+                    base_extra = existing_row.extra if isinstance(existing_row.extra, dict) else {}
+                    shared_teachers = self._student_shared_teachers(existing_row)
+                    shared_teachers.add(normalized_teacher)
+                    next_extra = dict(base_extra)
+                    next_extra["shared_teachers"] = sorted(shared_teachers)
+                    existing_row.extra = next_extra
+                    existing_row.updated_at = now
+                reused_count += 1
+                continue
+
             success_students.append(
                 {
                     "id": str(uuid.uuid4()),
@@ -755,13 +782,13 @@ class AdminService:
             operator=normalized_teacher,
             action="students.import",
             target="students",
-            detail=f"success={len(success_students)}, skipped={skipped_count}, failed={len(errors) - skipped_count}",
+            detail=f"success={len(success_students) + reused_count}, created={len(success_students)}, reused={reused_count}, skipped={skipped_count}, failed={len(errors) - skipped_count}",
         )
         await self._commit()
         failed_count = len(errors) - skipped_count
         return {
             "total_rows": len(parsed_rows),
-            "success_count": len(success_students),
+            "success_count": len(success_students) + reused_count,
             "skipped_count": skipped_count,
             "failed_count": failed_count,
             "errors": errors,
