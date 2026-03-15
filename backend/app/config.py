@@ -8,8 +8,8 @@ JUPYTERHUB_INTERNAL_URL = os.getenv("JUPYTERHUB_INTERNAL_URL", "http://jupyterhu
 # Prefer same-origin reverse-proxy path to avoid cross-origin cookie/WebSocket auth mismatches.
 JUPYTERHUB_PUBLIC_URL = os.getenv("JUPYTERHUB_PUBLIC_URL", "/jupyter").rstrip("/")
 JUPYTERHUB_API_TOKEN = os.getenv("JUPYTERHUB_API_TOKEN", "").strip()
-JUPYTERHUB_REQUEST_TIMEOUT_SECONDS = float(os.getenv("JUPYTERHUB_REQUEST_TIMEOUT_SECONDS", "10"))
-JUPYTERHUB_START_TIMEOUT_SECONDS = float(os.getenv("JUPYTERHUB_START_TIMEOUT_SECONDS", "60"))
+JUPYTERHUB_REQUEST_TIMEOUT_SECONDS = float(os.getenv("JUPYTERHUB_REQUEST_TIMEOUT_SECONDS", "30"))
+JUPYTERHUB_START_TIMEOUT_SECONDS = float(os.getenv("JUPYTERHUB_START_TIMEOUT_SECONDS", "180"))
 # Keep user browser sessions stable for long classes.
 JUPYTERHUB_USER_TOKEN_EXPIRES_SECONDS = int(os.getenv("JUPYTERHUB_USER_TOKEN_EXPIRES_SECONDS", "43200"))
 JUPYTER_WORKSPACE_UI = str(os.getenv("JUPYTER_WORKSPACE_UI", "lab") or "").strip().lower()

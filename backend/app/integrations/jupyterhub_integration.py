@@ -93,6 +93,15 @@ def _ensure_user_server_running(username: str) -> bool:
     if not _ensure_hub_user_exists(user):
         return False
 
+    try:
+        current = _hub_request("GET", f"/hub/api/users/{quote(user)}")
+        if current.status_code == 200:
+            state = _extract_server_state(current.json() or {})
+            if state.get("server_running") or state.get("server_pending"):
+                return True
+    except requests.RequestException:
+        pass
+
     spawn_resp = None
     for attempt in range(3):
         try:
@@ -109,7 +118,13 @@ def _ensure_user_server_running(username: str) -> bool:
                 except ValueError:
                     payload = {}
                 message = str(payload.get("message") or payload.get("detail") or resp.text or "")
-                if "already running" in message.lower():
+                normalized_message = message.lower()
+                if (
+                    "already running" in normalized_message
+                    or "is pending" in normalized_message
+                    or "server pending" in normalized_message
+                    or "spawn pending" in normalized_message
+                ):
                     spawn_resp = None
                     break
                 print(f"JupyterHub spawn failed ({resp.status_code}): {message[:200]}")

@@ -63,6 +63,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    command: >
+      sh -lc "uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${EXPERIMENT_MANAGER_WORKERS:-4}"
     networks:
       - training-network
     volumes:
@@ -80,6 +82,8 @@ services:
       JUPYTERHUB_INTERNAL_URL: http://jupyterhub:8000${JUPYTERHUB_BASE_URL:-/jupyter}
       JUPYTERHUB_PUBLIC_URL: ${JUPYTERHUB_PUBLIC_URL:-/jupyter}
       JUPYTERHUB_API_TOKEN: ${EXPERIMENT_MANAGER_API_TOKEN:-training-jhub-service-token}
+      JUPYTERHUB_REQUEST_TIMEOUT_SECONDS: ${JUPYTERHUB_REQUEST_TIMEOUT_SECONDS:-30}
+      JUPYTERHUB_START_TIMEOUT_SECONDS: ${JUPYTERHUB_START_TIMEOUT_SECONDS:-180}
     depends_on:
       postgres:
         condition: service_healthy
@@ -111,6 +115,8 @@ services:
 
       # Must match Nginx path prefix (no trailing slash needed).
       JUPYTERHUB_BASE_URL: ${JUPYTERHUB_BASE_URL:-/jupyter}
+      JUPYTERHUB_SPAWNER_START_TIMEOUT: ${JUPYTERHUB_SPAWNER_START_TIMEOUT:-180}
+      JUPYTERHUB_SPAWNER_HTTP_TIMEOUT: ${JUPYTERHUB_SPAWNER_HTTP_TIMEOUT:-180}
 
       # Optional: require a shared password for Hub logins (recommended on servers).
       DUMMY_PASSWORD: ${DUMMY_PASSWORD:-}
@@ -204,5 +210,4 @@ volumes:
   grafana-data:
   course-materials:
   shared-datasets:
-
 

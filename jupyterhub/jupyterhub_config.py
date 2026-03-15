@@ -365,6 +365,8 @@ c.DockerSpawner.network_name = network_name
 c.DockerSpawner.use_internal_ip = True
 c.DockerSpawner.extra_host_config = {"network_mode": network_name}
 c.Spawner.pre_spawn_hook = _apply_user_resource_limits
+c.Spawner.start_timeout = int(os.environ.get("JUPYTERHUB_SPAWNER_START_TIMEOUT", "180"))
+c.Spawner.http_timeout = int(os.environ.get("JUPYTERHUB_SPAWNER_HTTP_TIMEOUT", "180"))
 
 # Persist per-user work directory via a dedicated docker volume.
 if compose_project_name:
@@ -430,4 +432,3 @@ c.JupyterHub.tornado_settings = {
     # Respect X-Forwarded-* headers when running behind Nginx / TLS termination.
     "xheaders": True,
 }
-
