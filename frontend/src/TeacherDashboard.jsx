@@ -1,4 +1,4 @@
-﻿
+
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
@@ -8,7 +8,13 @@ import ResourceFileManagement from './ResourceFileManagement';
 import TeacherAIModule from './TeacherAIModule';
 import AdminStatsCenter from './AdminStatsCenter';
 import AdminResourceControl from './AdminResourceControl';
-import { persistJupyterTokenFromUrl } from './jupyterAuth';
+import {
+  closePendingWorkspaceWindow,
+  getWorkspaceLaunchInfo,
+  navigatePendingWorkspaceWindow,
+  openPendingWorkspaceWindow,
+  persistJupyterTokenFromUrl,
+} from './jupyterAuth';
 import './TeacherDashboard.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
@@ -466,36 +472,62 @@ function TeacherDashboard({ username, userRole, onLogout }) {
     window.location.reload();
   };
 
-  const openJupyterHub = async () => {
+  const openWorkspace = async (preferredWorkspace = 'lab') => {
+    const pendingWindow = openPendingWorkspaceWindow(preferredWorkspace === 'code' ? 'Opening VS Code...' : 'Opening JupyterLab...');
     try {
       const resp = await axios.get(`${API_BASE_URL}/api/jupyterhub/auto-login-url`, { params: { username } });
-      const autoLoginUrl = resp?.data?.jupyter_url;
-      if (autoLoginUrl) {
-        const launchUrl = persistJupyterTokenFromUrl(autoLoginUrl);
-        window.open(launchUrl, '_blank', 'noopener,noreferrer');
+      const launch = getWorkspaceLaunchInfo(resp?.data, preferredWorkspace);
+      const preferredKey = String(preferredWorkspace || '').trim().toLowerCase();
+      const preferredUrl = launch.workspaceUrls?.[preferredKey] || '';
+      if (preferredKey === 'code' && !preferredUrl) {
+        closePendingWorkspaceWindow(pendingWindow);
+        alert('当前环境未启用 VS Code 工作区。');
+        return;
+      }
+      const resolvedUrl = preferredUrl || launch.selectedUrl;
+      if (resolvedUrl) {
+        const launchUrl = persistJupyterTokenFromUrl(resolvedUrl);
+        const opened = navigatePendingWorkspaceWindow(pendingWindow, launchUrl);
+        if (!opened) {
+          alert('浏览器拦截了新窗口，请允许弹出窗口后重试。');
+        }
+        return;
+      }
+      if (preferredWorkspace === 'code') {
+        closePendingWorkspaceWindow(pendingWindow);
+        alert('当前环境未启用 VS Code 工作区。');
         return;
       }
     } catch (err) {
       // fallback to below
     }
 
+    if (preferredWorkspace === 'code') {
+      closePendingWorkspaceWindow(pendingWindow);
+      alert('当前环境未启用 VS Code 工作区。');
+      return;
+    }
+
     if (JUPYTERHUB_URL) {
-      window.open(JUPYTERHUB_URL, '_blank', 'noopener,noreferrer');
+      navigatePendingWorkspaceWindow(pendingWindow, JUPYTERHUB_URL);
       return;
     }
 
     try {
       const resp = await fetch(DEFAULT_JUPYTERHUB_HEALTH_URL, { method: 'GET', credentials: 'omit' });
       if (resp.ok) {
-        window.open(DEFAULT_JUPYTERHUB_URL, '_blank', 'noopener,noreferrer');
+        navigatePendingWorkspaceWindow(pendingWindow, DEFAULT_JUPYTERHUB_URL);
         return;
       }
     } catch (err) {
       // ignore
     }
 
-    window.open(LEGACY_JUPYTERHUB_URL, '_blank', 'noopener,noreferrer');
+    navigatePendingWorkspaceWindow(pendingWindow, LEGACY_JUPYTERHUB_URL);
   };
+
+  const openJupyterHub = () => openWorkspace('lab');
+  const openCodeServer = () => openWorkspace('code');
 
   return (
     <div className="teacher-lab-shell">
@@ -511,6 +543,7 @@ function TeacherDashboard({ username, userRole, onLogout }) {
             <span className="teacher-lab-user-role">角色：{isAdmin ? '系统管理员' : '教师管理员'}</span>
           </div>
           <button type="button" className="teacher-lab-jhub" onClick={openJupyterHub}>进入 JupyterHub</button>
+          <button type="button" className="teacher-lab-jhub teacher-lab-jhub-code" onClick={openCodeServer}>进入 VS Code</button>
           <button type="button" className="teacher-lab-logout" onClick={logout}>退出</button>
         </div>
       </header>
@@ -1572,5 +1605,3 @@ function AdminControlTabIcon() {
 }
 
 export default TeacherDashboard;
-
-

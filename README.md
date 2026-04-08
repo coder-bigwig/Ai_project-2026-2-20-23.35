@@ -81,6 +81,7 @@ docker compose exec -T experiment-manager python init_db.py
 
 - **统一入口（推荐）**：`http://localhost:8080`
 - **JupyterHub（经网关）**：`http://localhost:8080/jupyter/`
+- **VS Code 工作区**：通过平台内的“VS Code”入口进入，实际走 `/jupyter/user/<username>/code-server/` 同源代理，不新增公网顶层端口；学生镜像已预装 Java 17、Maven 和 Java 扩展
 - 后端 API 文档（直连容器端口）：`http://localhost:8001/docs`
 - AI 助手 API 文档：`http://localhost:8002/docs`
 - JupyterHub（直连端口）：`http://localhost:8003`
@@ -171,7 +172,7 @@ docker compose -f docker-compose.server.yml logs -f nginx
 - 默认账号来源（通过环境变量配置）：
   - 管理员：`ADMIN_ACCOUNTS`（默认 `admin`）
   - 教师：`TEACHER_ACCOUNTS`（默认 `teacher_001` ~ `teacher_005`）
-- 默认密码：`123456`（建议首次登录后修改）
+- 默认密码：`DEFAULT_PASSWORD`（默认 `fit350506`，建议首次登录后修改）
 
 ### 8.2 JupyterHub 登录（DummyAuthenticator）
 
@@ -186,10 +187,16 @@ docker compose -f docker-compose.server.yml logs -f nginx
 推荐基于 `.env.server.example` 配置（服务器模式必用；本地模式也可用）：
 
 - `DB_PASSWORD`：PostgreSQL 密码
+- `DEFAULT_PASSWORD`：门户/后端默认账号密码（默认 `fit350506`）
 - `EXPERIMENT_MANAGER_API_TOKEN`：后端调用 JupyterHub API 的服务 token（建议长随机串）
 - `DUMMY_PASSWORD`：JupyterHub 共享登录口令（服务器强烈建议设置）
+- `JOVYAN_PASSWORD`：单用户容器内 `jovyan` 的 Linux 密码，终端里执行 `sudo` 时使用（默认 `fit350506`）
 - `JUPYTERHUB_BASE_URL`：Hub 路径前缀（默认 `/jupyter`）
 - `JUPYTERHUB_PUBLIC_URL`：后端返回给前端的 Hub 公网地址（默认 `/jupyter`）
+- `JUPYTER_WORKSPACE_UI`：默认工作区类型（`lab` / `notebook` / `code`，默认 `lab`）
+- `ENABLE_CODE_SERVER`：是否在单用户容器内启用 `code-server`（默认 `1`）
+- `CODE_SERVER_PORT`：单用户容器内 `code-server` 监听端口（默认 `13337`）
+- Java 开发环境：单用户镜像已预装 `OpenJDK 17`、`Maven`，并会在首次启动时把 Java 扩展同步到用户自己的 VS Code 工作区
 - AI（可选）：
   - `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL`
   - `TAVILY_API_KEY`（联网检索能力）
@@ -206,6 +213,8 @@ docker compose -f docker-compose.server.yml logs -f nginx
 - `jupyterhub-data`：JupyterHub 配置/密钥/运行态信息
 - `training-uploads`：后端上传文件
 - `course-materials`：课程与实验资源（由 `data-loader` 从 `./experiments` 同步进卷）
+- `experiments/course/java-starter`：Maven Java 示例工程，可直接在平台内 VS Code 打开体验
+- `training-user-{username}`：学生/教师的 `/home/jovyan/work` 工作区，Notebook 与 VS Code 共享同一份文件
 
 > 后端存储后端 **只允许 PostgreSQL**（不会回退到 JSON）。如果 Postgres 初始化失败，后端会直接退出，避免“看似能跑但没落库”的情况。
 
@@ -221,6 +230,8 @@ docker compose ps
 docker compose logs -f experiment-manager
 docker compose down
 ```
+
+> 如果刚开启或升级了 VS Code 工作区，需要重建单用户镜像（`Dockerfile.student`），但不需要新增 Nginx 路由或顶层 Compose 服务。
 
 服务器模式：
 

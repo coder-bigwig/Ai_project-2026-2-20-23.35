@@ -96,6 +96,15 @@
   background: rgba(255, 255, 255, 0.2);
 }
 
+.teacher-lab-jhub-code {
+  background: rgba(16, 31, 56, 0.22);
+  border-color: rgba(224, 236, 255, 0.5);
+}
+
+.teacher-lab-jhub-code:hover {
+  background: rgba(16, 31, 56, 0.32);
+}
+
 .teacher-lab-logout {
   border: 1px solid rgba(255, 255, 255, 0.45);
   background: transparent;

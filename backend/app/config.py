@@ -2,6 +2,14 @@ from typing import List
 import os
 import re
 
+
+def _parse_int_env(name: str, default: int) -> int:
+    raw = str(os.getenv(name, str(default)) or str(default)).strip()
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
 APP_TITLE = "福州理工学院AI编程实践教学平台 - 实验管理API"
 
 JUPYTERHUB_INTERNAL_URL = os.getenv("JUPYTERHUB_INTERNAL_URL", "http://jupyterhub:8000").rstrip("/")
@@ -13,6 +21,8 @@ JUPYTERHUB_START_TIMEOUT_SECONDS = float(os.getenv("JUPYTERHUB_START_TIMEOUT_SEC
 # Keep user browser sessions stable for long classes.
 JUPYTERHUB_USER_TOKEN_EXPIRES_SECONDS = int(os.getenv("JUPYTERHUB_USER_TOKEN_EXPIRES_SECONDS", "43200"))
 JUPYTER_WORKSPACE_UI = str(os.getenv("JUPYTER_WORKSPACE_UI", "lab") or "").strip().lower()
+ENABLE_CODE_SERVER = str(os.getenv("ENABLE_CODE_SERVER", "1") or "").strip().lower() not in {"0", "false", "no", "off"}
+CODE_SERVER_PORT = max(1024, _parse_int_env("CODE_SERVER_PORT", 13337))
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "").strip()
 
 def _parse_account_list(raw: str) -> List[str]:

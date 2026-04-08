@@ -2,16 +2,22 @@ import React, { useEffect, useRef, useState } from 'react';
 import Split from 'react-split';
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
-import { persistJupyterTokenFromUrl } from './jupyterAuth';
+import { getWorkspaceLaunchInfo } from './jupyterAuth';
 import './ExperimentWorkspace.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const JUPYTER_UI_PATCH_INTERVAL_MS = 800;
 const JUPYTER_UI_PATCH_MAX_ATTEMPTS = 60;
+const CODE_SERVER_LOAD_TIMEOUT_MS = 8000;
 const JUPYTER_AI_AVATAR_URL = '/fit-logo-from-user.jpg';
 const AVATAR_LOAD_STATUS_BY_URL = new Map();
 const INVALID_AVATAR_TOKENS = new Set(['', 'null', 'undefined', 'none', 'nan', '-', '--', '[object object]']);
+const WORKSPACE_LABELS = {
+    lab: 'JupyterLab',
+    notebook: 'Notebook',
+    code: 'VS Code',
+};
 
 function getAbsoluteBrowserUrl(rawUrl) {
     let value = String(rawUrl ?? '').trim();
@@ -627,14 +633,21 @@ function ExperimentWorkspace() {
     const jupyterIframeRef = useRef(null);
     const jupyterUiPatchTimerRef = useRef(null);
     const jupyterUiPatchAttemptsRef = useRef(0);
+    const workspaceLoadTimeoutRef = useRef(null);
+    const labResetUrlsRef = useRef(new Set());
     const [experiment, setExperiment] = useState(null);
     const [docs, setDocs] = useState([]);
     const [activeDocIndex, setActiveDocIndex] = useState(0);
     const [, setStudentExp] = useState(null);
-    const [jupyterUrl, setJupyterUrl] = useState('');
+    const [workspaceUrls, setWorkspaceUrls] = useState({});
+    const [availableWorkspaces, setAvailableWorkspaces] = useState([]);
+    const [activeWorkspace, setActiveWorkspace] = useState('lab');
+    const [workspaceUrl, setWorkspaceUrl] = useState('');
+    const [showCodeServerFallback, setShowCodeServerFallback] = useState(false);
     const username = String(localStorage.getItem('username') || '').trim();
     const userRole = String(localStorage.getItem('userRole') || '').trim().toLowerCase();
     const isTeacherOrAdmin = userRole === 'teacher' || userRole === 'admin';
+    const isJupyterWorkspace = activeWorkspace === 'lab' || activeWorkspace === 'notebook';
 
 
     const clearJupyterUiPatchTimer = () => {
@@ -644,7 +657,54 @@ function ExperimentWorkspace() {
         }
     };
 
+    const clearWorkspaceLoadTimeout = () => {
+        if (workspaceLoadTimeoutRef.current) {
+            window.clearTimeout(workspaceLoadTimeoutRef.current);
+            workspaceLoadTimeoutRef.current = null;
+        }
+    };
+
+    const resolveWorkspaceIframeUrl = (rawUrl, workspaceKey) => {
+        if (!rawUrl) return '';
+        if (workspaceKey !== 'lab') {
+            return rawUrl;
+        }
+        if (labResetUrlsRef.current.has(rawUrl)) {
+            return rawUrl;
+        }
+        labResetUrlsRef.current.add(rawUrl);
+        return withJupyterWorkspaceReset(rawUrl);
+    };
+
+    const applyWorkspaceResponse = (payload, preferredWorkspace = '') => {
+        const launch = getWorkspaceLaunchInfo(payload, preferredWorkspace);
+        const nextWorkspaceUrls = {};
+
+        Object.entries(launch.workspaceUrls || {}).forEach(([key, value]) => {
+            if (value) {
+                nextWorkspaceUrls[key] = value;
+            }
+        });
+
+        const nextAvailableWorkspaces = (launch.availableWorkspaces || [])
+            .filter((key) => nextWorkspaceUrls[key]);
+        const nextActiveWorkspace = nextWorkspaceUrls[launch.defaultWorkspace]
+            ? launch.defaultWorkspace
+            : (nextAvailableWorkspaces[0] || '');
+
+        setWorkspaceUrls(nextWorkspaceUrls);
+        setAvailableWorkspaces(nextAvailableWorkspaces);
+        setActiveWorkspace(nextActiveWorkspace || 'lab');
+        setWorkspaceUrl(
+            nextActiveWorkspace
+                ? resolveWorkspaceIframeUrl(nextWorkspaceUrls[nextActiveWorkspace], nextActiveWorkspace)
+                : ''
+        );
+        setShowCodeServerFallback(false);
+    };
+
     const patchJupyterUiOnce = () => {
+        if (!isJupyterWorkspace) return false;
         const iframe = jupyterIframeRef.current;
         const frameWindow = iframe?.contentWindow;
         const doc = iframe?.contentDocument;
@@ -665,9 +725,15 @@ function ExperimentWorkspace() {
         return hasJupyterAiPanelContent(doc);
     };
 
-    const handleJupyterIframeLoad = () => {
+    const handleWorkspaceIframeLoad = () => {
+        clearWorkspaceLoadTimeout();
+        setShowCodeServerFallback(false);
         clearJupyterUiPatchTimer();
         jupyterUiPatchAttemptsRef.current = 0;
+
+        if (!isJupyterWorkspace) {
+            return;
+        }
 
         const tick = () => {
             jupyterUiPatchAttemptsRef.current += 1;
@@ -708,7 +774,25 @@ function ExperimentWorkspace() {
             clearJupyterUiPatchTimer();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [jupyterUrl]);
+    }, [workspaceUrl, isJupyterWorkspace]);
+
+    useEffect(() => {
+        const rawUrl = workspaceUrls[activeWorkspace] || '';
+        const nextUrl = resolveWorkspaceIframeUrl(rawUrl, activeWorkspace);
+        setWorkspaceUrl(nextUrl);
+        setShowCodeServerFallback(false);
+        clearWorkspaceLoadTimeout();
+
+        if (activeWorkspace === 'code' && nextUrl) {
+            workspaceLoadTimeoutRef.current = window.setTimeout(() => {
+                setShowCodeServerFallback(true);
+            }, CODE_SERVER_LOAD_TIMEOUT_MS);
+        }
+
+        return () => {
+            clearWorkspaceLoadTimeout();
+        };
+    }, [activeWorkspace, workspaceUrls]);
 
     const loadData = async () => {
         try {
@@ -740,8 +824,7 @@ function ExperimentWorkspace() {
                     `${API_BASE_URL}/api/jupyterhub/auto-login-url`,
                     { params: { username, experiment_id: experimentId } }
                 );
-                const resolvedTeacherUrl = persistJupyterTokenFromUrl(hubResp?.data?.jupyter_url || '');
-                setJupyterUrl(withJupyterWorkspaceReset(resolvedTeacherUrl));
+                applyWorkspaceResponse(hubResp?.data);
                 return;
             }
 
@@ -750,8 +833,7 @@ function ExperimentWorkspace() {
                 null,
                 { params: { student_id: username } }
             );
-            const resolvedJupyterUrl = persistJupyterTokenFromUrl(startRes.data.jupyter_url);
-            setJupyterUrl(withJupyterWorkspaceReset(resolvedJupyterUrl));
+            applyWorkspaceResponse(startRes.data);
 
             if (startRes.data.student_experiment_id) {
                 try {
@@ -778,12 +860,32 @@ function ExperimentWorkspace() {
         navigate('/');
     };
 
+    const openActiveWorkspaceInNewTab = () => {
+        const targetUrl = workspaceUrls[activeWorkspace] || workspaceUrl;
+        if (!targetUrl) return;
+        window.open(targetUrl, '_blank', 'noopener,noreferrer');
+    };
+
     return (
         <div className="workspace-container">
             <div className="workspace-header">
                 <button onClick={handleBackToCourseList} className="back-btn">← 返回</button>
                 <h2>{experiment?.title}</h2>
                 <div className="workspace-info">
+                    {availableWorkspaces.length > 1 ? (
+                        <div className="workspace-switcher" role="tablist" aria-label="工作区切换">
+                            {availableWorkspaces.map((workspaceKey) => (
+                                <button
+                                    key={workspaceKey}
+                                    type="button"
+                                    className={`workspace-switch-btn ${activeWorkspace === workspaceKey ? 'active' : ''}`}
+                                    onClick={() => setActiveWorkspace(workspaceKey)}
+                                >
+                                    {WORKSPACE_LABELS[workspaceKey] || workspaceKey}
+                                </button>
+                            ))}
+                        </div>
+                    ) : null}
                     <span>{username}</span>
                 </div>
             </div>
@@ -867,15 +969,25 @@ function ExperimentWorkspace() {
                 </div>
 
                 <div className="right-pane">
-                    {jupyterUrl ? (
-                        <iframe
-                            ref={jupyterIframeRef}
-                            src={jupyterUrl}
-                            title="JupyterLab"
-                            className="jupyter-iframe"
-                            allow="clipboard-read; clipboard-write"
-                            onLoad={handleJupyterIframeLoad}
-                        />
+                    {workspaceUrl ? (
+                        <>
+                            <iframe
+                                ref={jupyterIframeRef}
+                                src={workspaceUrl}
+                                title={WORKSPACE_LABELS[activeWorkspace] || 'Workspace'}
+                                className="jupyter-iframe"
+                                allow="clipboard-read; clipboard-write"
+                                onLoad={handleWorkspaceIframeLoad}
+                            />
+                            {showCodeServerFallback && activeWorkspace === 'code' ? (
+                                <div className="workspace-fallback-banner">
+                                    <span>VS Code 嵌入加载较慢或被浏览器拦截时，可直接在新标签页打开。</span>
+                                    <button type="button" onClick={openActiveWorkspaceInNewTab}>
+                                        在新标签页打开 VS Code
+                                    </button>
+                                </div>
+                            ) : null}
+                        </>
                     ) : (
                         <div className="loading-pane">正在加载实验环境...</div>
                     )}

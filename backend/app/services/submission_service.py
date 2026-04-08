@@ -228,8 +228,16 @@ class SubmissionService:
             except Exception as exc:
                 print(f"JupyterHub integration error: {exc}")
 
-        jupyter_url = self.main._build_user_lab_url(student_id, path=notebook_relpath, token=user_token_for_url)
-        return {"student_experiment_id": student_exp.id, "jupyter_url": jupyter_url, "message": "实验环境已启动"}
+        payload = self.main._build_workspace_launch_payload(
+            student_id,
+            path=notebook_relpath,
+            token=user_token_for_url,
+        )
+        payload.update({
+            "student_experiment_id": student_exp.id,
+            "message": "实验环境已启动",
+        })
+        return payload
 
     async def submit_experiment(self, student_exp_id: str, submission):
         row = await StudentExperimentRepository(self.db).get(student_exp_id)
@@ -489,4 +497,3 @@ class SubmissionService:
 
 def build_submission_service(main_module, db: Optional[AsyncSession] = None) -> SubmissionService:
     return SubmissionService(main_module=main_module, db=db)
-
