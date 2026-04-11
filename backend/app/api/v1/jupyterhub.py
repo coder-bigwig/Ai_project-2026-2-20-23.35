@@ -107,12 +107,14 @@ async def get_jupyterhub_auto_login_url(
         notebook_relpath = f"work/{user}_{normalized_experiment_id[:8]}.ipynb"
 
     if not main._jupyterhub_enabled():
-        path = notebook_relpath
-        return {
-            "jupyter_url": main._build_user_lab_url(user, path=path) if path else f"{main.JUPYTERHUB_PUBLIC_URL}/hub/home",
+        payload = main._build_workspace_launch_payload(user, path=notebook_relpath)
+        if not payload.get("jupyter_url"):
+            payload["jupyter_url"] = f"{main.JUPYTERHUB_PUBLIC_URL}/hub/home"
+        payload.update({
             "tokenized": False,
             "message": "JupyterHub token integration is disabled",
-        }
+        })
+        return payload
 
     if not main._ensure_user_server_running(user):
         raise HTTPException(status_code=503, detail="JupyterHub user server failed to start")
@@ -170,17 +172,19 @@ async def get_jupyterhub_auto_login_url(
             print(f"JupyterHub auto-login notebook preparation error: {exc}")
 
     if not token:
-        return {
-            "jupyter_url": main._build_user_lab_url(user, path=notebook_relpath),
+        payload = main._build_workspace_launch_payload(user, path=notebook_relpath)
+        payload.update({
             "tokenized": False,
             "message": "Failed to mint user token, fell back to non-token URL",
-        }
+        })
+        return payload
 
-    return {
-        "jupyter_url": main._build_user_lab_url(user, path=notebook_relpath, token=token),
+    payload = main._build_workspace_launch_payload(user, path=notebook_relpath, token=token)
+    payload.update({
         "tokenized": True,
         "message": "ok",
-    }
+    })
+    return payload
 
 
 async def stop_jupyterhub_user_server(

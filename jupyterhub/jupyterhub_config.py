@@ -168,6 +168,8 @@ teacher_accounts = set(
 admin_accounts = set(c.Authenticator.admin_users or set())
 enable_storage_limit = str(os.environ.get("ENABLE_DOCKER_STORAGE_LIMIT", "0")).strip() == "1"
 serverapp_websocket_url = str(os.environ.get("SERVERAPP_WEBSOCKET_URL", "")).strip()
+enable_code_server = str(os.environ.get("ENABLE_CODE_SERVER", "1") or "").strip().lower() not in {"0", "false", "no", "off"}
+code_server_port = str(os.environ.get("CODE_SERVER_PORT", "13337") or "13337").strip() or "13337"
 
 default_role_limits = {
     "student": {"cpu_limit": 2.0, "memory_limit": "8G", "storage_limit": "2G"},
@@ -352,6 +354,8 @@ async def _apply_user_resource_limits(spawner):
     environment["TRAINING_CPU_LIMIT"] = str(quota["cpu_limit"])
     environment["TRAINING_MEMORY_LIMIT"] = quota["memory_limit"]
     environment["TRAINING_STORAGE_LIMIT"] = quota["storage_limit"]
+    environment["ENABLE_CODE_SERVER"] = "1" if enable_code_server else "0"
+    environment["CODE_SERVER_PORT"] = code_server_port
     spawner.environment = _apply_jupyter_ai_environment(environment)
 
 c.JupyterHub.spawner_class = DockerSpawner
@@ -409,11 +413,23 @@ c.JupyterHub.default_url = "/hub/home"
 # Service token for the training platform backend to manage user servers.
 service_token = os.environ.get("EXPERIMENT_MANAGER_API_TOKEN", "").strip()
 if service_token:
+    service_name = "experiment-manager"
     c.JupyterHub.services = [
         {
-            "name": "experiment-manager",
+            "name": service_name,
             "api_token": service_token,
-            "admin": True,
+        }
+    ]
+    c.JupyterHub.load_roles = [
+        {
+            "name": "experiment-manager-service-role",
+            "description": "Allow the backend to manage Hub users, servers, and short-lived user tokens.",
+            "services": [service_name],
+            "scopes": [
+                "admin:users",
+                "admin:servers",
+                "tokens",
+            ],
         }
     ]
 

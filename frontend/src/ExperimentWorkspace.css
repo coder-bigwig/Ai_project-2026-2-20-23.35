@@ -21,6 +21,40 @@
     font-weight: 500;
 }
 
+.workspace-info {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+}
+
+.workspace-switcher {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.workspace-switch-btn {
+    border: 1px solid rgba(24, 144, 255, 0.45);
+    background: rgba(255, 255, 255, 0.08);
+    color: #d7ecff;
+    border-radius: 999px;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.workspace-switch-btn:hover {
+    background: rgba(24, 144, 255, 0.16);
+}
+
+.workspace-switch-btn.active {
+    background: #1890ff;
+    color: #ffffff;
+    border-color: #1890ff;
+}
+
 .back-btn {
     background: none;
     border: 1px solid #1890ff;
@@ -55,6 +89,7 @@
 
 .right-pane {
     background-color: white;
+    position: relative;
 }
 
 .gutter {
@@ -72,6 +107,40 @@
     width: 100%;
     height: 100%;
     border: none;
+}
+
+.workspace-fallback-banner {
+    position: absolute;
+    right: 18px;
+    bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: min(560px, calc(100% - 36px));
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: rgba(16, 24, 40, 0.9);
+    color: #f8fbff;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
+}
+
+.workspace-fallback-banner span {
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.workspace-fallback-banner button {
+    border: none;
+    background: #1d7fc3;
+    color: #ffffff;
+    border-radius: 999px;
+    padding: 8px 14px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.workspace-fallback-banner button:hover {
+    background: #1769a1;
 }
 
 .doc-tabs {
@@ -193,4 +262,27 @@
     white-space: pre-wrap;
     word-break: break-word;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+@media (max-width: 900px) {
+    .workspace-header {
+        height: auto;
+        min-height: 50px;
+        gap: 10px;
+        flex-wrap: wrap;
+        padding: 10px 14px;
+    }
+
+    .workspace-info {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .workspace-fallback-banner {
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        flex-direction: column;
+        align-items: stretch;
+    }
 }

@@ -1,4 +1,5 @@
 from typing import Optional, Dict
+import posixpath
 import time
 from urllib.parse import quote
 
@@ -12,6 +13,7 @@ from ..config import (
     JUPYTERHUB_START_TIMEOUT_SECONDS,
     JUPYTERHUB_USER_TOKEN_EXPIRES_SECONDS,
     JUPYTER_WORKSPACE_UI,
+    ENABLE_CODE_SERVER,
 )
 
 
@@ -266,11 +268,9 @@ def _create_short_lived_user_token(
         resp = _hub_request(
             "POST",
             f"/hub/api/users/{quote(user)}/tokens",
-            # Restrict scope to only allow accessing this user's server via the proxy.
             json={
                 "note": "training-platform",
                 "expires_in": int(expires_in),
-                "scopes": [f"access:servers!user={user}"],
             },
         )
         if resp.status_code not in {200, 201}:
@@ -311,14 +311,30 @@ def _append_token(url: str, token: Optional[str]) -> str:
     return f"{url}{separator}token={quote(token)}"
 
 
-def _build_user_lab_url(username: str, path: Optional[str] = None, token: Optional[str] = None) -> str:
+def _normalize_workspace_ui(value: Optional[str], *, default: str = "lab") -> str:
+    normalized = _normalize_text(value).lower()
+    if normalized in {"lab", "notebook", "code"}:
+        return normalized
+    return default
+
+
+def _code_server_enabled() -> bool:
+    return bool(ENABLE_CODE_SERVER and _jupyterhub_enabled())
+
+
+def _build_user_jupyter_url(
+    username: str,
+    path: Optional[str] = None,
+    token: Optional[str] = None,
+    workspace_ui: str = "lab",
+) -> str:
     user = _normalize_text(username)
     if not user:
         return ""
 
-    workspace_ui = JUPYTER_WORKSPACE_UI if JUPYTER_WORKSPACE_UI in {"notebook", "lab"} else "lab"
+    normalized_ui = _normalize_workspace_ui(workspace_ui, default="lab")
 
-    if workspace_ui == "notebook":
+    if normalized_ui == "notebook":
         if path:
             encoded_path = quote(path, safe="/")
             base = f"{JUPYTERHUB_PUBLIC_URL}/user/{quote(user)}/notebooks/{encoded_path}"
@@ -332,6 +348,88 @@ def _build_user_lab_url(username: str, path: Optional[str] = None, token: Option
             base = f"{JUPYTERHUB_PUBLIC_URL}/user/{quote(user)}/lab"
 
     return _append_token(base, token)
+
+
+def _build_user_lab_url(username: str, path: Optional[str] = None, token: Optional[str] = None) -> str:
+    workspace_ui = JUPYTER_WORKSPACE_UI if JUPYTER_WORKSPACE_UI in {"notebook", "lab"} else "lab"
+    return _build_user_jupyter_url(username, path=path, token=token, workspace_ui=workspace_ui)
+
+
+def _build_code_server_folder(path: Optional[str] = None) -> str:
+    base_folder = "/home/jovyan/work"
+    normalized_path = _normalize_text(path).replace("\\", "/").lstrip("/")
+    if not normalized_path:
+        return base_folder
+
+    relative_folder = normalized_path
+    if posixpath.splitext(posixpath.basename(relative_folder))[1]:
+        relative_folder = posixpath.dirname(relative_folder)
+    relative_folder = posixpath.normpath(relative_folder).strip("/")
+
+    if not relative_folder or relative_folder in {".", "work"}:
+        return base_folder
+
+    if relative_folder.startswith("work/"):
+        relative_folder = relative_folder[len("work/"):]
+
+    relative_folder = relative_folder.strip("/")
+    if not relative_folder or relative_folder == ".":
+        return base_folder
+
+    return f"{base_folder}/{quote(relative_folder, safe='/')}"
+
+
+def _build_user_code_url(username: str, path: Optional[str] = None, token: Optional[str] = None) -> str:
+    user = _normalize_text(username)
+    if not user:
+        return ""
+    folder = _build_code_server_folder(path)
+    base = f"{JUPYTERHUB_PUBLIC_URL}/user/{quote(user)}/code-server/?folder={quote(folder, safe='/')}"
+    return _append_token(base, token)
+
+
+def _build_user_workspace_urls(username: str, path: Optional[str] = None, token: Optional[str] = None) -> Dict[str, str]:
+    urls: Dict[str, str] = {
+        "lab": _build_user_jupyter_url(username, path=path, token=token, workspace_ui="lab"),
+    }
+
+    if _normalize_workspace_ui(JUPYTER_WORKSPACE_UI) == "notebook":
+        urls["notebook"] = _build_user_jupyter_url(username, path=path, token=token, workspace_ui="notebook")
+
+    if _code_server_enabled():
+        urls["code"] = _build_user_code_url(username, path=path, token=token)
+
+    return {key: value for key, value in urls.items() if value}
+
+
+def _default_workspace_ui() -> str:
+    preferred = _normalize_workspace_ui(JUPYTER_WORKSPACE_UI, default="lab")
+    if preferred == "code" and not _code_server_enabled():
+        return "lab"
+    return preferred
+
+
+def _build_workspace_launch_payload(username: str, path: Optional[str] = None, token: Optional[str] = None) -> dict:
+    workspace_urls = _build_user_workspace_urls(username, path=path, token=token)
+    ordered_keys = ["lab", "notebook", "code"]
+    available_workspaces = [key for key in ordered_keys if workspace_urls.get(key)]
+    default_workspace_ui = _default_workspace_ui()
+    if default_workspace_ui not in workspace_urls:
+        default_workspace_ui = "lab" if workspace_urls.get("lab") else (available_workspaces[0] if available_workspaces else "lab")
+
+    payload = {
+        "jupyter_url": workspace_urls.get("lab", ""),
+        "workspace_urls": workspace_urls,
+        "available_workspaces": available_workspaces,
+        "default_workspace_ui": default_workspace_ui,
+    }
+    if workspace_urls.get("notebook"):
+        payload["notebook_url"] = workspace_urls["notebook"]
+    if workspace_urls.get("code"):
+        payload["code_server_url"] = workspace_urls["code"]
+    return payload
+
+
 def _hub_user_state_map() -> Dict[str, dict]:
     if not _jupyterhub_enabled():
         return {}

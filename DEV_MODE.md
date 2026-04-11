@@ -42,6 +42,7 @@ set SKIP_FRONTEND=1 && start-dev.bat
   - Swagger：`http://localhost:8002/docs`
 - JupyterHub（直连）：`http://localhost:8003`
   - 注意：直连 Hub 有时会遇到 websocket / base_url 的限制，推荐用完整模式走网关验证。
+- VS Code 工作区：由 Jupyter 单用户服务器按需拉起，开发时优先通过完整模式的实验页或教师页入口验证，不建议手工暴露新的顶层端口。
 - Grafana：`http://localhost:3001`（默认 `admin/admin`）
 - Prometheus：`http://localhost:9090`
 

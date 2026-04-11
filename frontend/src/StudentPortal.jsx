@@ -2,7 +2,13 @@
 
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { persistJupyterTokenFromUrl } from './jupyterAuth';
+import {
+  closePendingWorkspaceWindow,
+  getWorkspaceLaunchInfo,
+  navigatePendingWorkspaceWindow,
+  openPendingWorkspaceWindow,
+  persistJupyterTokenFromUrl
+} from './jupyterAuth';
 import './StudentPortal.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
@@ -18,6 +24,7 @@ function StudentPortal({ username, tab }) {
   const [loading, setLoading] = useState(true);
   const [selectedExperiment, setSelectedExperiment] = useState(null);
   const [showAIChat, setShowAIChat] = useState(false);
+  const [workspaceType, setWorkspaceType] = useState('jupyterlab'); // 'jupyterlab' 或 'vscode'
 
   const studentId = username || 'student001'; // Use prop or fallback
 
@@ -61,7 +68,8 @@ function StudentPortal({ username, tab }) {
       );
 
       // 打开JupyterLab
-      const launchUrl = persistJupyterTokenFromUrl(response.data.jupyter_url);
+      const launch = getWorkspaceLaunchInfo(response.data);
+      const launchUrl = persistJupyterTokenFromUrl(launch.selectedUrl || response.data.jupyter_url);
       window.open(launchUrl, '_blank');
 
       // 刷新数据
@@ -72,8 +80,58 @@ function StudentPortal({ username, tab }) {
     }
   };
 
-  const continueExperiment = (studentExpId) => {
-    window.open(JUPYTERHUB_URL, '_blank');
+  const continueExperiment = async (studentExpId) => {
+    if (workspaceType === 'vscode') {
+      openWorkspace('code', studentExpId);
+    } else {
+      // 打开 JupyterLab
+      try {
+        const response = await axios.get(
+          `${API_BASE_URL}/api/jupyterhub/auto-login-url`,
+          { params: { username: studentId } }
+        );
+        const launch = getWorkspaceLaunchInfo(response.data);
+        const launchUrl = persistJupyterTokenFromUrl(launch.selectedUrl || response.data.jupyter_url);
+        window.open(launchUrl, '_blank');
+      } catch (error) {
+        console.error('打开 JupyterLab 失败:', error);
+        window.open(JUPYTERHUB_URL, '_blank');
+      }
+    }
+  };
+
+  const openWorkspace = async (type, studentExpId) => {
+    const pendingWindow = openPendingWorkspaceWindow(type === 'code' ? 'Opening VS Code...' : 'Opening JupyterLab...');
+    try {
+      const response = await axios.get(
+        `${API_BASE_URL}/api/jupyterhub/auto-login-url`,
+        { params: { username: studentId } }
+      );
+      const launch = getWorkspaceLaunchInfo(response.data, type);
+      const preferredUrl = type === 'code'
+        ? (launch.workspaceUrls?.code || response.data.code_server_url || '')
+        : '';
+      if (type === 'code' && !preferredUrl) {
+        closePendingWorkspaceWindow(pendingWindow);
+        alert('当前环境未启用 VS Code 工作区。');
+        return;
+      }
+      const url = persistJupyterTokenFromUrl(
+        launch.selectedUrl || (type === 'code' ? preferredUrl : response.data.jupyter_url)
+      );
+      const opened = navigatePendingWorkspaceWindow(pendingWindow, url);
+      if (!opened) {
+        alert('浏览器拦截了新窗口，请允许弹出窗口后重试。');
+      }
+    } catch (error) {
+      closePendingWorkspaceWindow(pendingWindow);
+      console.error(`打开 ${type === 'code' ? 'VS Code' : 'JupyterLab'} 失败:`, error);
+      alert(`打开 ${type === 'code' ? 'VS Code' : 'JupyterLab'} 失败，请重试`);
+    }
+  };
+
+  const openVSCode = async (studentExpId) => {
+    openWorkspace('code', studentExpId);
   };
 
   const submitExperiment = async (studentExpId, notebookContent) => {
@@ -124,11 +182,23 @@ function StudentPortal({ username, tab }) {
           />
         )}
 
+        {/* 快速入口 */}
+        <div className="quick-actions" style={{ position: 'fixed', bottom: '20px', right: '20px', display: 'flex', gap: '10px', zIndex: 1000 }}>
+          <button
+            className="btn"
+            style={{ backgroundColor: '#0078d4', color: 'white', padding: '10px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}
+            onClick={openVSCode}
+          >
+            🖥️ VS Code
+          </button>
+        </div>
+
         {activeTab === 'my-experiments' && (
           <MyExperimentsList
             myExperiments={myExperiments}
             onContinue={continueExperiment}
             onSubmit={submitExperiment}
+            onOpenVSCode={openVSCode}
           />
         )}
       </main>
@@ -258,7 +328,7 @@ function ExperimentCard({ experiment, onStart, onViewDetail }) {
 
 // ==================== 我的实验列表组件 ====================
 
-function MyExperimentsList({ myExperiments, onContinue, onSubmit }) {
+function MyExperimentsList({ myExperiments, onContinue, onSubmit, onOpenVSCode }) {
   const statusColors = {
     '未开始': '#d9d9d9',
     '进行中': '#1890ff',
@@ -313,6 +383,13 @@ function MyExperimentsList({ myExperiments, onContinue, onSubmit }) {
                           onClick={() => onContinue(exp.id)}
                         >
                           继续实验
+                        </button>
+                        <button
+                          className="btn btn-small"
+                          style={{ marginLeft: '8px', backgroundColor: '#0078d4', color: 'white', border: 'none' }}
+                          onClick={() => onOpenVSCode(exp.id)}
+                        >
+                          VS Code
                         </button>
                         <button
                           className="btn btn-small"

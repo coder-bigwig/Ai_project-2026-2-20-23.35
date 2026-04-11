@@ -1,19 +1,73 @@
 ﻿FROM jupyter/scipy-notebook:latest
 
+ARG JOVYAN_PASSWORD=fit350506
+ARG CODE_SERVER_EXTENSION_SEED_DIR=/opt/code-server/extensions-seed
+
 USER root
 
-# Base tools
-RUN apt-get update && apt-get install -y \
+# Base tools + Java toolchain (using Alibaba Cloud mirror)
+RUN sed -i 's/http:\/\/archive.ubuntu.com/http:\/\/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+    sed -i 's/http:\/\/security.ubuntu.com/http:\/\/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+    apt-get update -o Acquire::Retries=3 && apt-get install -y --no-install-recommends \
     curl \
     git \
+    locales \
+    maven \
+    openjdk-17-jdk \
+    sudo \
     vim \
+    && sed -i 's/^# *\(zh_CN.UTF-8 UTF-8\)/\1/' /etc/locale.gen \
+    && locale-gen zh_CN.UTF-8 \
+    # Keep a known sudo password for the notebook user inside spawned containers.
+    && usermod -aG sudo jovyan \
+    && printf 'jovyan ALL=(ALL) ALL\n' > /etc/sudoers.d/90-jovyan \
+    && chmod 0440 /etc/sudoers.d/90-jovyan \
+    && printf 'jovyan:%s\n' "${JOVYAN_PASSWORD}" | chpasswd \
     && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://code-server.dev/install.sh -o /tmp/code-server-install.sh && \
+    sh /tmp/code-server-install.sh && \
+    rm -f /tmp/code-server-install.sh
+
+COPY scripts/code-server-default-user-settings.json /opt/code-server/default-user-settings.json
+COPY scripts/bootstrap-code-server-java.sh /usr/local/bin/before-notebook.d/20-bootstrap-code-server-java.sh
+
+RUN chmod 0755 /usr/local/bin/before-notebook.d/20-bootstrap-code-server-java.sh && \
+    mkdir -p "${CODE_SERVER_EXTENSION_SEED_DIR}" && \
+    install_extension() { \
+      extension="$1"; \
+      attempt=1; \
+      while [ "${attempt}" -le 3 ]; do \
+        if code-server --install-extension "${extension}" --extensions-dir "${CODE_SERVER_EXTENSION_SEED_DIR}"; then \
+          return 0; \
+        fi; \
+        echo "Retrying ${extension} install (${attempt}/3)..." >&2; \
+        attempt=$((attempt + 1)); \
+        sleep 5; \
+      done; \
+      return 1; \
+    }; \
+    install_extension redhat.java && \
+    install_extension vscjava.vscode-java-debug && \
+    install_extension vscjava.vscode-java-test && \
+    install_extension vscjava.vscode-java-dependency && \
+    install_extension vscjava.vscode-maven && \
+    java -version && \
+    javac -version && \
+    mvn -version
+
+# Pre-configure code-server to avoid auth/timeout issues
+RUN mkdir -p ~/.config/code-server && \
+    echo 'bind-addr: 127.0.0.1:13337' > ~/.config/code-server/config.yaml && \
+    echo 'auth: none' >> ~/.config/code-server/config.yaml && \
+    echo 'cert: false' >> ~/.config/code-server/config.yaml
 
 USER ${NB_UID}
 
 # Teaching extensions
 RUN pip install --no-cache-dir \
     jupyterlab-language-pack-zh-CN \
+    jupyter-server-proxy \
     nbgrader \
     jupyterlab_execute_time
 
@@ -182,6 +236,84 @@ path.write_text(script, encoding="utf-8")
 path.chmod(0o755)
 print(f"wrote {path}")
 PY
+
+RUN python - <<'PY'
+from pathlib import Path
+import textwrap
+
+config = textwrap.dedent(
+    """
+import os
+from traitlets.config import get_config
+
+c = get_config()
+
+
+def _is_truthy(value, default=True):
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return default
+    return raw not in {"0", "false", "no", "off"}
+
+
+def _code_server_port():
+    raw = str(os.environ.get("CODE_SERVER_PORT", "13337") or "13337").strip()
+    try:
+        port = int(raw)
+    except ValueError:
+        port = 13337
+    return max(1024, port)
+
+
+if _is_truthy(os.environ.get("ENABLE_CODE_SERVER", "1"), default=True):
+    base_dir = "/home/jovyan/work/.code-server"
+    user_data_dir = f"{base_dir}/user-data"
+    extensions_dir = f"{base_dir}/extensions"
+    config_dir = "/home/jovyan/work/.config"
+    port = _code_server_port()
+    existing = getattr(c.ServerProxy, "servers", {})
+    try:
+        servers = dict(existing)
+    except (TypeError, ValueError):
+        servers = {}
+    servers["code-server"] = {
+        "command": [
+            "bash",
+            "-lc",
+            (
+                f"mkdir -p {user_data_dir} {extensions_dir} {config_dir} /home/jovyan/work/.local/share "
+                f"&& export XDG_CONFIG_HOME={config_dir} "
+                f"&& export XDG_DATA_HOME=/home/jovyan/work/.local/share "
+                f"&& export VSCODE_PROXY_URI=./proxy/{{{{port}}}}/ "
+                f"&& exec code-server --auth none --bind-addr 127.0.0.1:{port} "
+                f"--disable-telemetry --disable-update-check "
+                f"--user-data-dir {user_data_dir} "
+                f"--extensions-dir {extensions_dir} "
+                f"/home/jovyan/work"
+            ),
+        ],
+        "port": port,
+        "timeout": 60,
+        "absolute_url": False,
+        "launcher_entry": {
+            "enabled": True,
+            "title": "VS Code",
+        },
+    }
+    c.ServerProxy.servers = servers
+    """
+).strip() + "\n"
+
+path = Path("/etc/jupyter/jupyter_server_config.py")
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(config, encoding="utf-8")
+print(f"wrote {path}")
+PY
+
+RUN mkdir -p /home/jovyan/.local/share/jupyter /home/jovyan/.jupyter && \
+    chown -R ${NB_UID}:users /home/jovyan/.local /home/jovyan/.jupyter && \
+    chmod -R g+rwX /home/jovyan/.local /home/jovyan/.jupyter
+
 USER ${NB_UID}
 
 # CV/DL dependencies (CPU)
@@ -200,7 +332,11 @@ RUN pip install --no-cache-dir \
     timm \
     sentencepiece
 
-ENV LANG=zh_CN.UTF-8 \
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
+    PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH \
+    MAVEN_OPTS=-Dmaven.repo.local=/home/jovyan/work/.m2/repository \
+    CODE_SERVER_EXTENSION_SEED_DIR=/opt/code-server/extensions-seed \
+    LANG=zh_CN.UTF-8 \
     LC_ALL=zh_CN.UTF-8
 
 RUN mkdir -p /opt/conda/share/jupyter/lab/settings && \

@@ -32,13 +32,19 @@ cp .env.server.example .env
 - `DB_PASSWORD`（Postgres 密码）
 - `EXPERIMENT_MANAGER_API_TOKEN`（后端调用 Hub 的服务 token，建议长随机串）
 - `DUMMY_PASSWORD`（**强烈建议设置**：Hub 登录口令，公网必设）
+- `JOVYAN_PASSWORD`（单用户容器里 `jovyan` 的 Linux 密码，终端里执行 `sudo` 时使用）
 - `JUPYTERHUB_BASE_URL`（默认 `/jupyter`，不要随便改）
+- `JUPYTER_WORKSPACE_UI`（默认工作区：`lab` / `notebook` / `code`）
+- `ENABLE_CODE_SERVER=1`（启用单用户容器内的 VS Code 工作区，学生镜像可直接用于 Java 开发）
+- `CODE_SERVER_PORT=13337`（单用户容器内的 `code-server` 监听端口）
 - （可选）AI keys：`DEEPSEEK_API_KEY`、`TAVILY_API_KEY`
 
 3) 启动
 ```bash
 docker compose -f docker-compose.server.yml up -d --build
 ```
+
+> 启用或升级 VS Code 工作区后，需要重建单用户镜像（`Dockerfile.student`），但不需要新增 Nginx 路由或新的顶层 Compose 服务。
 
 4) 初始化示例数据（可重复执行）
 ```bash
@@ -51,6 +57,7 @@ docker compose -f docker-compose.server.yml exec -T experiment-manager python in
 
 - 门户（经 Nginx）：`http://<服务器IP>/`
 - JupyterHub（经 Nginx）：`http://<服务器IP>/jupyter/`
+- VS Code 工作区：通过平台内“VS Code”入口进入，实际走 `/jupyter/user/<username>/code-server/` 同源代理；当前学生镜像已预装 Java 17、Maven 和 Java 扩展
 - 后端 API（经 Nginx）：`http://<服务器IP>/api/`
 
 如需直连检查（以 compose 端口映射为准）：

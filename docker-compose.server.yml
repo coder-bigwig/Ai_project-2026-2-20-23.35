@@ -84,6 +84,9 @@ services:
       JUPYTERHUB_API_TOKEN: ${EXPERIMENT_MANAGER_API_TOKEN:-training-jhub-service-token}
       JUPYTERHUB_REQUEST_TIMEOUT_SECONDS: ${JUPYTERHUB_REQUEST_TIMEOUT_SECONDS:-30}
       JUPYTERHUB_START_TIMEOUT_SECONDS: ${JUPYTERHUB_START_TIMEOUT_SECONDS:-180}
+      JUPYTER_WORKSPACE_UI: ${JUPYTER_WORKSPACE_UI:-lab}
+      ENABLE_CODE_SERVER: ${ENABLE_CODE_SERVER:-1}
+      CODE_SERVER_PORT: ${CODE_SERVER_PORT:-13337}
     depends_on:
       postgres:
         condition: service_healthy
@@ -120,6 +123,8 @@ services:
 
       # Optional: require a shared password for Hub logins (recommended on servers).
       DUMMY_PASSWORD: ${DUMMY_PASSWORD:-}
+      ENABLE_CODE_SERVER: ${ENABLE_CODE_SERVER:-1}
+      CODE_SERVER_PORT: ${CODE_SERVER_PORT:-13337}
     networks:
       - training-network
     depends_on:
@@ -135,6 +140,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.student
+      args:
+        JOVYAN_PASSWORD: ${JOVYAN_PASSWORD:-fit350506}
     image: training-lab:latest
     command: echo "Student image built successfully"
     networks:
@@ -210,4 +217,3 @@ volumes:
   grafana-data:
   course-materials:
   shared-datasets:
-
