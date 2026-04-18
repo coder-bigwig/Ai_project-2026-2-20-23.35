@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import ResourceORM
@@ -25,6 +25,11 @@ class ResourceRepository:
         result = await self.db.execute(select(ResourceORM))
         return list(result.scalars().all())
 
+    async def count(self) -> int:
+        stmt = select(func.count()).select_from(ResourceORM)
+        value = await self.db.scalar(stmt)
+        return int(value or 0)
+
     async def update(self, record: ResourceORM, payload: dict[str, Any]) -> ResourceORM:
         for key, value in payload.items():
             setattr(record, key, value)
@@ -45,4 +50,3 @@ class ResourceRepository:
             return None
         await self.db.delete(record)
         return record
-

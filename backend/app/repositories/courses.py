@@ -93,6 +93,11 @@ class CourseRepository:
         result = await self.db.execute(select(CourseORM))
         return list(result.scalars().all())
 
+    async def count(self) -> int:
+        stmt = select(func.count()).select_from(CourseORM)
+        value = await self.db.scalar(stmt)
+        return int(value or 0)
+
     async def list_by_creator(self, created_by: str) -> Sequence[CourseORM]:
         stmt = select(CourseORM).where(CourseORM.created_by == created_by)
         result = await self.db.execute(stmt)

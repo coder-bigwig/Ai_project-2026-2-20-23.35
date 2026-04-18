@@ -1,5 +1,7 @@
 ﻿# docker-compose.yml - 实训平台核心服务部署配置
 
+x-training-lab-image: &training_lab_image ${TRAINING_LAB_IMAGE:-training-lab:latest}
+
 services:
   # ==================== 基础设施服务 ====================
 
@@ -115,7 +117,7 @@ services:
       HUB_DB_URL: postgresql://jupyterhub:${DB_PASSWORD:-changeme}@postgres:5432/jupyterhub
       # Docker Spawner 配置
       # JupyterLab 镜像名称
-      DOCKER_NOTEBOOK_IMAGE: training-lab:latest
+      DOCKER_NOTEBOOK_IMAGE: *training_lab_image
       # Backend service token (for Hub API calls)
       EXPERIMENT_MANAGER_API_TOKEN: ${EXPERIMENT_MANAGER_API_TOKEN:-training-jhub-service-token}
       JUPYTERHUB_BASE_URL: ${JUPYTERHUB_BASE_URL:-/jupyter}
@@ -146,7 +148,7 @@ services:
       dockerfile: Dockerfile.student
       args:
         JOVYAN_PASSWORD: ${JOVYAN_PASSWORD:-fit350506}
-    image: training-lab:latest
+    image: *training_lab_image
     command: echo "Student image built successfully"
     networks:
       - training-network
@@ -214,13 +216,16 @@ services:
     image: grafana/grafana:latest
     volumes:
       - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana-provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana-dashboards:/var/lib/grafana/dashboards
     ports:
       - "3001:3000"
     networks:
       - training-network
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      DB_PASSWORD: ${DB_PASSWORD:-changeme}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-fit350506}
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/training-platform-overview.json
       GF_INSTALL_PLUGINS: ${GF_INSTALL_PLUGINS:-}
     depends_on:
       - prometheus

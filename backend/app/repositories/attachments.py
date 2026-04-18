@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import AttachmentORM
@@ -24,6 +24,11 @@ class AttachmentRepository:
     async def list_all(self) -> Sequence[AttachmentORM]:
         result = await self.db.execute(select(AttachmentORM))
         return list(result.scalars().all())
+
+    async def count(self) -> int:
+        stmt = select(func.count()).select_from(AttachmentORM)
+        value = await self.db.scalar(stmt)
+        return int(value or 0)
 
     async def list_by_experiment(self, experiment_id: str) -> Sequence[AttachmentORM]:
         stmt = select(AttachmentORM).where(AttachmentORM.experiment_id == experiment_id)

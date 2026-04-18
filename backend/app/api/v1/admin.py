@@ -188,4 +188,3 @@ router.add_api_route("/api/admin/resources/{resource_id}", get_resource_file_det
 router.add_api_route("/api/admin/resources/{resource_id}", delete_resource_file, methods=["DELETE"])
 router.add_api_route("/api/admin/resources/{resource_id}/preview", preview_resource_file, methods=["GET"])
 router.add_api_route("/api/admin/resources/{resource_id}/download", download_resource_file, methods=["GET"])
-

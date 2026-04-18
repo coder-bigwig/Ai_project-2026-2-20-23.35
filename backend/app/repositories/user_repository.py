@@ -99,6 +99,14 @@ class AuthUserRepository:
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
+    async def count_by_role(self, role: str) -> int:
+        normalized = self._normalize_text(role).lower()
+        if not normalized:
+            return 0
+        stmt = select(func.count()).select_from(AuthUserORM).where(AuthUserORM.role == normalized)
+        value = await self.db.scalar(stmt)
+        return int(value or 0)
+
     async def delete_by_username(self, username: str) -> bool:
         record = await self.get_by_username(username)
         if record is None:

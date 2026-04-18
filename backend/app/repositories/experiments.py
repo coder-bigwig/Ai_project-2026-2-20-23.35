@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import ExperimentORM
@@ -24,6 +24,11 @@ class ExperimentRepository:
     async def list_all(self) -> Sequence[ExperimentORM]:
         result = await self.db.execute(select(ExperimentORM))
         return list(result.scalars().all())
+
+    async def count(self) -> int:
+        stmt = select(func.count()).select_from(ExperimentORM)
+        value = await self.db.scalar(stmt)
+        return int(value or 0)
 
     async def list_by_course_ids(self, course_ids: Sequence[str]) -> Sequence[ExperimentORM]:
         ids = [item for item in course_ids if item]

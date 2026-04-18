@@ -209,6 +209,93 @@ def _active_session_seconds(entry: dict, *, now: datetime) -> float:
     return round((now - started).total_seconds(), 3)
 
 
+def _is_snapshot_entry_active(entry: dict, *, now: datetime, timeout_seconds: int) -> bool:
+    active_started = _parse_dt(entry.get("active_session_started_at"))
+    if active_started is None or now < active_started:
+        return False
+    last_seen = _parse_dt(entry.get("last_seen_at"))
+    if last_seen is not None and (now - last_seen).total_seconds() >= timeout_seconds:
+        return False
+    return True
+
+
+def _build_usage_report(live_rows: list[dict], *, now: datetime, timeout_seconds: int) -> dict:
+    def _role_summary(target_role: str) -> dict:
+        rows = [item for item in live_rows if item.get("role") == target_role]
+        active_rows = [item for item in rows if item.get("server_running") or item.get("server_pending")]
+        total_seconds = round(sum(float(item.get("total_seconds") or 0.0) for item in rows), 3)
+        active_seconds = round(sum(float(item.get("active_session_seconds") or 0.0) for item in active_rows), 3)
+        return {
+            "tracked_users": len(rows),
+            "active_users": len(active_rows),
+            "session_count": int(sum(int(item.get("session_count") or 0) for item in rows)),
+            "total_duration_seconds": total_seconds,
+            "active_duration_seconds": active_seconds,
+            "total_duration_with_active_seconds": round(total_seconds + active_seconds, 3),
+        }
+
+    by_role = {
+        "teacher": _role_summary("teacher"),
+        "student": _role_summary("student"),
+        "admin": _role_summary("admin"),
+    }
+    summary = {
+        "active_teachers": by_role["teacher"]["active_users"],
+        "active_students": by_role["student"]["active_users"],
+        "teacher_session_count": by_role["teacher"]["session_count"],
+        "student_session_count": by_role["student"]["session_count"],
+        "teacher_total_duration_seconds": by_role["teacher"]["total_duration_with_active_seconds"],
+        "student_total_duration_seconds": by_role["student"]["total_duration_with_active_seconds"],
+    }
+    return {
+        "generated_at": _to_iso(now),
+        "summary": summary,
+        "by_role": by_role,
+        "users": live_rows,
+        "session_idle_timeout_seconds": timeout_seconds,
+        "scope": "jupyter_sessions",
+    }
+
+
+def build_cached_jupyter_usage_report(
+    state: dict,
+    *,
+    idle_timeout_seconds: int = SESSION_IDLE_TIMEOUT_SECONDS,
+) -> dict:
+    now = _now_utc()
+    timeout_seconds = max(60, int(idle_timeout_seconds or SESSION_IDLE_TIMEOUT_SECONDS))
+    users_raw = state.get("users", {}) if isinstance(state, dict) else {}
+    live_rows: list[dict] = []
+
+    if isinstance(users_raw, dict):
+        for username in sorted(users_raw):
+            normalized_username = normalize_text(username)
+            if not normalized_username:
+                continue
+            entry = _normalize_user_entry(users_raw.get(username))
+            is_active = _is_snapshot_entry_active(entry, now=now, timeout_seconds=timeout_seconds)
+            active_session_seconds = _active_session_seconds(entry, now=now) if is_active else 0.0
+            total_seconds = _clamp_non_negative_float(entry.get("total_seconds"))
+            live_rows.append(
+                {
+                    "username": normalized_username,
+                    "role": entry.get("role", "student"),
+                    "server_running": is_active,
+                    "server_pending": False,
+                    "last_activity": entry.get("last_seen_at", ""),
+                    "server_started": entry.get("active_session_started_at", ""),
+                    "session_count": _clamp_non_negative_int(entry.get("session_count")),
+                    "total_seconds": total_seconds,
+                    "active_session_seconds": active_session_seconds,
+                    "total_with_active_seconds": round(total_seconds + active_session_seconds, 3),
+                    "active_session_started_at": entry.get("active_session_started_at", ""),
+                    "last_seen_at": entry.get("last_seen_at", ""),
+                }
+            )
+
+    return _build_usage_report(live_rows, now=now, timeout_seconds=timeout_seconds)
+
+
 async def sync_and_build_jupyter_usage_report(
     db: AsyncSession,
     *,
@@ -303,39 +390,4 @@ async def sync_and_build_jupyter_usage_report(
     if changed:
         await save_usage_monitor_state(db, state)
 
-    def _role_summary(target_role: str) -> dict:
-        rows = [item for item in live_rows if item.get("role") == target_role]
-        active_rows = [item for item in rows if item.get("server_running") or item.get("server_pending")]
-        total_seconds = round(sum(float(item.get("total_seconds") or 0.0) for item in rows), 3)
-        active_seconds = round(sum(float(item.get("active_session_seconds") or 0.0) for item in active_rows), 3)
-        return {
-            "tracked_users": len(rows),
-            "active_users": len(active_rows),
-            "session_count": int(sum(int(item.get("session_count") or 0) for item in rows)),
-            "total_duration_seconds": total_seconds,
-            "active_duration_seconds": active_seconds,
-            "total_duration_with_active_seconds": round(total_seconds + active_seconds, 3),
-        }
-
-    by_role = {
-        "teacher": _role_summary("teacher"),
-        "student": _role_summary("student"),
-        "admin": _role_summary("admin"),
-    }
-    summary = {
-        "active_teachers": by_role["teacher"]["active_users"],
-        "active_students": by_role["student"]["active_users"],
-        "teacher_session_count": by_role["teacher"]["session_count"],
-        "student_session_count": by_role["student"]["session_count"],
-        "teacher_total_duration_seconds": by_role["teacher"]["total_duration_with_active_seconds"],
-        "student_total_duration_seconds": by_role["student"]["total_duration_with_active_seconds"],
-    }
-    report = {
-        "generated_at": _to_iso(now),
-        "summary": summary,
-        "by_role": by_role,
-        "users": live_rows,
-        "session_idle_timeout_seconds": timeout_seconds,
-        "scope": "jupyter_sessions",
-    }
-    return report, changed
+    return _build_usage_report(live_rows, now=now, timeout_seconds=timeout_seconds), changed

@@ -3,9 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import registry_store as _registry_store
 from .config import APP_TITLE
-from .db.session import close_db_engine, init_db_engine, init_db_schema, storage_backend_name
+from .db.session import close_db_engine, get_db, init_db_engine, init_db_schema, storage_backend_name
 from .integrations import jupyterhub_integration as _jupyterhub_integration
 from .services import ai_service as _ai_service
+from .services.bootstrap_service import ensure_default_auth_accounts
 from .state import assert_legacy_state_write_blocked
 
 
@@ -57,7 +58,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    """应用启动时仅初始化数据库连接和表结构。"""
+    """应用启动时初始化数据库连接、表结构和默认认证账号。"""
     assert_legacy_state_write_blocked()
     backend_mode = storage_backend_name()
     if backend_mode != "postgres":
@@ -68,6 +69,9 @@ async def startup_event():
         raise RuntimeError("PostgreSQL initialization failed. Service exits without JSON fallback.")
 
     await init_db_schema()
+    async for db in get_db():
+        await ensure_default_auth_accounts(db, password_hasher=_registry_store._hash_password)
+        break
 
 
 @app.on_event("shutdown")

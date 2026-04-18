@@ -154,7 +154,9 @@ def _resolve_compose_project_name(resolved_network_name: str) -> str:
 
 
 compose_project_name = _resolve_compose_project_name(network_name)
-notebook_image = os.environ.get("DOCKER_NOTEBOOK_IMAGE", "training-lab:latest")
+notebook_image = str(os.environ.get("DOCKER_NOTEBOOK_IMAGE", "") or "").strip()
+if not notebook_image:
+    raise RuntimeError("DOCKER_NOTEBOOK_IMAGE environment variable is required.")
 experiment_manager_db_url = os.environ.get("EXPERIMENT_MANAGER_DATABASE_URL", os.environ.get("HUB_DB_URL", ""))
 experiment_manager_schema = str(os.environ.get("POSTGRES_SCHEMA", "experiment_manager") or "experiment_manager").strip()
 if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", experiment_manager_schema):
@@ -402,7 +404,6 @@ c.Spawner.args = [
     # may differ from the browser Origin. Allow all origins for teaching-platform embeds.
     "--ServerApp.allow_origin_pat=.*",
     "--ServerApp.disable_check_xsrf=True",
-    '--ServerApp.tornado_settings={"headers":{"Content-Security-Policy":"frame-ancestors *","Access-Control-Allow-Origin":"*"}}',
 ]
 if serverapp_websocket_url:
     c.Spawner.args.append(f"--ServerApp.websocket_url={serverapp_websocket_url}")

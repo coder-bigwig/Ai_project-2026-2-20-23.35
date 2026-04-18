@@ -44,6 +44,11 @@ class UserRepository:
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
+    async def count_by_role(self, role: str) -> int:
+        stmt = select(func.count()).select_from(UserORM).where(UserORM.role == role)
+        value = await self.db.scalar(stmt)
+        return int(value or 0)
+
     async def update(self, record: UserORM, payload: dict[str, Any]) -> UserORM:
         for key, value in payload.items():
             setattr(record, key, value)
@@ -85,6 +90,11 @@ class UserRepository:
     async def list_classes(self) -> Sequence[ClassroomORM]:
         result = await self.db.execute(select(ClassroomORM))
         return list(result.scalars().all())
+
+    async def count_classes(self) -> int:
+        stmt = select(func.count()).select_from(ClassroomORM)
+        value = await self.db.scalar(stmt)
+        return int(value or 0)
 
     async def list_classes_by_creator(self, created_by: str) -> Sequence[ClassroomORM]:
         stmt = select(ClassroomORM).where(ClassroomORM.created_by == created_by)
