@@ -85,7 +85,7 @@ docker compose exec -T experiment-manager python init_db.py
 - 后端 API 文档（直连容器端口）：`http://localhost:8001/docs`
 - AI 助手 API 文档：`http://localhost:8002/docs`
 - JupyterHub（直连端口）：`http://localhost:8003`
-- Grafana：`http://localhost:3001`（默认 `admin/admin`）
+- Grafana：`http://localhost:8080/grafana/`（默认 `admin/admin`）
 - Prometheus：`http://localhost:9090`
 
 ### 4.4 停止
@@ -264,7 +264,9 @@ docker compose exec -T experiment-manager python init_db.py
 
 ### 12.3 服务器上为什么 AI/监控默认打不开？
 
-服务器 compose 默认把 AI / Prometheus / Grafana 端口绑定到 `127.0.0.1`，适合通过 SSH 隧道访问（更安全）。如需公网开放，请修改 `docker-compose.server.yml` 的端口绑定。
+服务器 compose 默认把 AI / Prometheus 端口绑定到 `127.0.0.1`，适合通过 SSH 隧道访问（更安全）。Grafana 也可通过平台同源路径 `http://<服务器IP>/grafana/` 访问。如需公网直连端口，请修改 `docker-compose.server.yml` 的端口绑定。
+
+如果启用了 `/grafana/` 反代，请在服务器 `.env` 中把 `GRAFANA_ROOT_URL` 设置为实际访问地址，例如 `http://<服务器IP>/grafana/` 或 `https://<你的域名>/grafana/`。
 
 ------
 

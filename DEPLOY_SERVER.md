@@ -34,6 +34,7 @@ cp .env.server.example .env
 - `DUMMY_PASSWORD`（**强烈建议设置**：Hub 登录口令，公网必设）
 - `JOVYAN_PASSWORD`（单用户容器里 `jovyan` 的 Linux 密码，终端里执行 `sudo` 时使用）
 - `JUPYTERHUB_BASE_URL`（默认 `/jupyter`，不要随便改）
+- `GRAFANA_ROOT_URL`（如启用 `/grafana/` 反代，设置为 `http://<服务器IP>/grafana/` 或你的域名地址）
 - `JUPYTER_WORKSPACE_UI`（默认工作区：`lab` / `notebook` / `code`）
 - `ENABLE_CODE_SERVER=1`（启用单用户容器内的 VS Code 工作区，学生镜像可直接用于 Java 开发）
 - `CODE_SERVER_PORT=13337`（单用户容器内的 `code-server` 监听端口）
@@ -79,7 +80,7 @@ Hub 使用 DummyAuthenticator；如果不设置共享密码（或设置太弱）
 确保 Postgres 端口不对外开放（compose 中不要绑定 `0.0.0.0:5432`）。
 
 ### 4.3 监控/AI 默认只允许本机访问（推荐保持）
-很多部署会把 Grafana/Prometheus/AI 绑定到 `127.0.0.1`：
+很多部署会把 Prometheus/AI 绑定到 `127.0.0.1`：
 - 需要查看时用 SSH 隧道：
 ```bash
 ssh -L 3001:127.0.0.1:3001 -L 9090:127.0.0.1:9090 user@<服务器IP>
