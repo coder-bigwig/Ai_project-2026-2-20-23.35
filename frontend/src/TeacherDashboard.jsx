@@ -391,7 +391,7 @@ function TeacherDashboard({ username, userRole, onLogout }) {
       target_student_ids: normalizeStringArray(formData.target_student_ids),
       course_id: course.id,
       course_name: course.name,
-      created_by: username,
+      created_by: course?.created_by || username,
     };
     const res = await axios.post(`${API_BASE_URL}/api/experiments`, payload);
     await loadCourses();

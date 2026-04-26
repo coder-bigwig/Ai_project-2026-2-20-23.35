@@ -408,8 +408,8 @@ c.Spawner.args = [
 if serverapp_websocket_url:
     c.Spawner.args.append(f"--ServerApp.websocket_url={serverapp_websocket_url}")
 
-# Default: Hub home
-c.JupyterHub.default_url = "/hub/home"
+# Default: Hub home, preserving any configured path prefix.
+c.JupyterHub.default_url = f"{base_url}hub/home"
 
 # Service token for the training platform backend to manage user servers.
 service_token = os.environ.get("EXPERIMENT_MANAGER_API_TOKEN", "").strip()

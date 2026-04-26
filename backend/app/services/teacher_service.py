@@ -191,8 +191,9 @@ class TeacherService:
         return {"message": "密码修改成功"}
 
     async def get_teacher_courses(self, teacher_username: str):
-        normalized_teacher, _ = await self._ensure_teacher(teacher_username)
-        course_rows = await CourseRepository(self.db).list_by_creator(normalized_teacher)
+        normalized_teacher, role = await self._ensure_teacher(teacher_username)
+        course_repo = CourseRepository(self.db)
+        course_rows = await course_repo.list_all() if role == "admin" else await course_repo.list_by_creator(normalized_teacher)
         experiment_rows = await ExperimentRepository(self.db).list_all()
         experiments = [self._to_experiment_model(item) for item in experiment_rows]
 
@@ -202,8 +203,8 @@ class TeacherService:
             owned = [
                 item
                 for item in experiments
-                if normalize_text(item.created_by) == normalized_teacher
-                and normalize_text(item.course_id) == normalize_text(course.id)
+                if normalize_text(item.course_id) == normalize_text(course.id)
+                and (role == "admin" or normalize_text(item.created_by) == normalized_teacher)
             ]
             payload.append(self._course_payload(course, owned))
         payload.sort(key=lambda item: item.get("updated_at") or item.get("created_at") or datetime.min, reverse=True)
@@ -292,16 +293,17 @@ class TeacherService:
         return self._course_payload(course, [])
 
     async def update_teacher_course(self, course_id: str, payload):
-        normalized_teacher, _ = await self._ensure_teacher(payload.teacher_username)
+        normalized_teacher, role = await self._ensure_teacher(payload.teacher_username)
         course_repo = CourseRepository(self.db)
         exp_repo = ExperimentRepository(self.db)
         row = await course_repo.get(course_id)
-        if not row or normalize_text(row.created_by) != normalized_teacher:
+        course_owner = normalize_text(row.created_by) if row else ""
+        if not row or (role != "admin" and course_owner != normalized_teacher):
             raise HTTPException(status_code=404, detail="课程不存在")
 
         next_name = normalize_text(payload.name) or row.name
         if normalize_text(next_name).lower() != normalize_text(row.name).lower():
-            existing = await course_repo.find_by_teacher_and_name(normalized_teacher, next_name)
+            existing = await course_repo.find_by_teacher_and_name(course_owner, next_name)
             if existing and existing.id != row.id:
                 raise HTTPException(status_code=409, detail="课程名称已存在")
             old_name = row.name
@@ -309,7 +311,7 @@ class TeacherService:
 
             experiment_rows = await exp_repo.list_by_course_ids([course_id])
             for item in experiment_rows:
-                if normalize_text(item.created_by) != normalized_teacher:
+                if role != "admin" and normalize_text(item.created_by) != normalized_teacher:
                     continue
                 if normalize_text(item.course_name) == normalize_text(old_name):
                     item.course_name = next_name
@@ -319,7 +321,11 @@ class TeacherService:
         row.updated_at = datetime.now()
 
         related_rows = await exp_repo.list_by_course_ids([course_id])
-        related = [self._to_experiment_model(item) for item in related_rows if normalize_text(item.created_by) == normalized_teacher]
+        related = [
+            self._to_experiment_model(item)
+            for item in related_rows
+            if role == "admin" or normalize_text(item.created_by) == normalized_teacher
+        ]
         await append_operation_log(
             self.db,
             operator=normalized_teacher,
@@ -331,19 +337,19 @@ class TeacherService:
         return self._course_payload(self._to_course_record(row), related)
 
     async def delete_teacher_course(self, course_id: str, teacher_username: str, delete_experiments: bool = False):
-        normalized_teacher, _ = await self._ensure_teacher(teacher_username)
+        normalized_teacher, role = await self._ensure_teacher(teacher_username)
 
         course_repo = CourseRepository(self.db)
         exp_repo = ExperimentRepository(self.db)
         att_repo = AttachmentRepository(self.db)
         course_row = await course_repo.get(course_id)
-        if not course_row or normalize_text(course_row.created_by) != normalized_teacher:
+        if not course_row or (role != "admin" and normalize_text(course_row.created_by) != normalized_teacher):
             raise HTTPException(status_code=404, detail="课程不存在")
 
         exp_rows = [
             item
             for item in await exp_repo.list_by_course_ids([course_id])
-            if normalize_text(item.created_by) == normalized_teacher
+            if role == "admin" or normalize_text(item.created_by) == normalized_teacher
         ]
         if exp_rows and not delete_experiments:
             raise HTTPException(status_code=409, detail="课程下存在实验，请先删除实验或传入 delete_experiments=true")
@@ -372,17 +378,17 @@ class TeacherService:
         return {"message": "课程已删除", "id": course_id}
 
     async def toggle_course_publish(self, course_id: str, teacher_username: str, published: bool):
-        normalized_teacher, _ = await self._ensure_teacher(teacher_username)
+        normalized_teacher, role = await self._ensure_teacher(teacher_username)
         course_repo = CourseRepository(self.db)
         exp_repo = ExperimentRepository(self.db)
         course = await course_repo.get(course_id)
-        if not course or normalize_text(course.created_by) != normalized_teacher:
+        if not course or (role != "admin" and normalize_text(course.created_by) != normalized_teacher):
             raise HTTPException(status_code=404, detail="课程不存在")
 
         related = [
             item
             for item in await exp_repo.list_by_course_ids([course_id])
-            if normalize_text(item.created_by) == normalized_teacher
+            if role == "admin" or normalize_text(item.created_by) == normalized_teacher
         ]
         if not related:
             return {"message": "课程下暂无实验", "published": published, "updated": 0}
@@ -405,13 +411,13 @@ class TeacherService:
         }
 
     async def get_all_student_progress(self, teacher_username: str):
-        normalized_teacher, _ = await self._ensure_teacher(teacher_username)
+        normalized_teacher, role = await self._ensure_teacher(teacher_username)
 
         exp_rows = await ExperimentRepository(self.db).list_all()
         owned_experiment_ids = {
             item.id
             for item in exp_rows
-            if normalize_text(item.created_by) == normalized_teacher
+            if role == "admin" or normalize_text(item.created_by) == normalized_teacher
         }
 
         student_rows = await UserRepository(self.db).list_by_role("student")
