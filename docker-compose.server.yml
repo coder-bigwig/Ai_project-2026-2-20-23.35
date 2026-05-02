@@ -283,7 +283,7 @@ services:
       - "-config.file=/etc/promtail/config.yml"
 
   node-exporter:
-    image: prom/node-exporter:latest
+    image: ${NODE_EXPORTER_IMAGE:-prom/node-exporter:latest}
     volumes:
       - /:/host:ro,rslave
     networks:
@@ -293,7 +293,7 @@ services:
       - "--path.rootfs=/host"
 
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    image: ${CADVISOR_IMAGE:-gcr.io/cadvisor/cadvisor:v0.49.1}
     privileged: true
     volumes:
       - /:/rootfs:ro
