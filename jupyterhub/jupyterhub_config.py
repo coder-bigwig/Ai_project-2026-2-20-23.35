@@ -412,16 +412,18 @@ if serverapp_websocket_url:
 c.JupyterHub.default_url = f"{base_url}hub/home"
 
 # Service token for the training platform backend to manage user servers.
+hub_services = []
+hub_roles = []
 service_token = os.environ.get("EXPERIMENT_MANAGER_API_TOKEN", "").strip()
 if service_token:
     service_name = "experiment-manager"
-    c.JupyterHub.services = [
+    hub_services.append(
         {
             "name": service_name,
             "api_token": service_token,
         }
-    ]
-    c.JupyterHub.load_roles = [
+    )
+    hub_roles.append(
         {
             "name": "experiment-manager-service-role",
             "description": "Allow the backend to manage Hub users, servers, and short-lived user tokens.",
@@ -432,7 +434,41 @@ if service_token:
                 "tokens",
             ],
         }
-    ]
+    )
+
+idle_timeout = int(os.environ.get("JUPYTERHUB_IDLE_TIMEOUT_SECONDS", "1800") or "1800")
+cull_every = int(os.environ.get("JUPYTERHUB_CULL_EVERY_SECONDS", "300") or "300")
+if idle_timeout > 0:
+    idle_service_name = "idle-culler"
+    hub_services.append(
+        {
+            "name": idle_service_name,
+            "command": [
+                "jupyterhub-idle-culler",
+                f"--timeout={idle_timeout}",
+                f"--cull-every={max(60, cull_every)}",
+                "--concurrency=10",
+            ],
+        }
+    )
+    hub_roles.append(
+        {
+            "name": "idle-culler-role",
+            "description": "Cull idle single-user notebook servers.",
+            "services": [idle_service_name],
+            "scopes": [
+                "list:users",
+                "read:users:activity",
+                "read:servers",
+                "delete:servers",
+            ],
+        }
+    )
+
+if hub_services:
+    c.JupyterHub.services = hub_services
+if hub_roles:
+    c.JupyterHub.load_roles = hub_roles
 
 # Logs
 c.JupyterHub.log_level = "INFO"

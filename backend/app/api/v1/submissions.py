@@ -21,10 +21,11 @@ router = APIRouter()
 async def start_experiment(
     experiment_id: str,
     student_id: str,
+    force_restart: bool = False,
     db: Optional[AsyncSession] = Depends(get_db),
 ):
     service = build_submission_service(main_module=main, db=db)
-    return await service.start_experiment(experiment_id=experiment_id, student_id=student_id)
+    return await service.start_experiment(experiment_id=experiment_id, student_id=student_id, force_restart=force_restart)
 
 
 async def submit_experiment(

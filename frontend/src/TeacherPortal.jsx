@@ -5,6 +5,21 @@ import axios from 'axios';
 import './StudentPortal.css'; // 复用大部分样式
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
+const DEFAULT_RESOURCE_TIERS = [
+    { key: 'small', label: '小实验', cpu_limit: 1, memory_limit: '2G', storage_limit: '2G' },
+    { key: 'medium', label: '普通实验', cpu_limit: 1, memory_limit: '4G', storage_limit: '4G' },
+    { key: 'large', label: '大项目', cpu_limit: 2, memory_limit: '8G', storage_limit: '8G' },
+    { key: 'xlarge', label: '超大项目', cpu_limit: 4, memory_limit: '16G', storage_limit: '20G' },
+];
+
+function normalizeResourceTier(value) {
+    const key = String(value || '').trim().toLowerCase();
+    return DEFAULT_RESOURCE_TIERS.some((item) => item.key === key) ? key : 'small';
+}
+
+function resourceTierLabel(item) {
+    return `${item?.label || item?.key || '小实验'}：${item?.cpu_limit || 1} CPU / ${item?.memory_limit || '2G'} 内存`;
+}
 
 function TeacherPortal({ username, tab = 'experiments' }) {
     const [activeTab, setActiveTab] = useState(tab);
@@ -13,12 +28,27 @@ function TeacherPortal({ username, tab = 'experiments' }) {
     const [statistics, setStatistics] = useState(null);
     const [loading, setLoading] = useState(true);
     const [editingExperiment, setEditingExperiment] = useState(null);
+    const [resourceTiers, setResourceTiers] = useState(DEFAULT_RESOURCE_TIERS);
 
     useEffect(() => {
         if (activeTab === 'experiments') loadExperiments();
         if (activeTab === 'submissions') loadSubmissions();
         if (activeTab === 'statistics') loadStatistics();
     }, [activeTab]);
+
+    useEffect(() => {
+        let cancelled = false;
+        axios.get(`${API_BASE_URL}/api/resource-tiers`)
+            .then((response) => {
+                if (!cancelled) setResourceTiers(Array.isArray(response.data) && response.data.length ? response.data : DEFAULT_RESOURCE_TIERS);
+            })
+            .catch(() => {
+                if (!cancelled) setResourceTiers(DEFAULT_RESOURCE_TIERS);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     const loadExperiments = async () => {
         setLoading(true);
@@ -141,6 +171,7 @@ function TeacherPortal({ username, tab = 'experiments' }) {
             {editingExperiment && (
                 <ExperimentEditorModal
                     experiment={editingExperiment}
+                    resourceTiers={resourceTiers}
                     onClose={() => setEditingExperiment(null)}
                     onSave={handleSaveExperiment}
                 />
@@ -330,7 +361,7 @@ function Dashboard({ statistics, loading }) {
 
 // ==================== 实验编辑弹窗 ====================
 
-function ExperimentEditorModal({ experiment, onClose, onSave }) {
+function ExperimentEditorModal({ experiment, resourceTiers = DEFAULT_RESOURCE_TIERS, onClose, onSave }) {
     const [formData, setFormData] = useState({
         title: '',
         description: '',
@@ -338,6 +369,7 @@ function ExperimentEditorModal({ experiment, onClose, onSave }) {
         tags: '',
         notebook_path: 'notebooks/template.ipynb',
         resources: { cpu: 1.0, memory: '2G', storage: '1G' },
+        resource_tier: normalizeResourceTier(experiment?.resource_tier || experiment?.resources?.resource_tier),
         ...experiment
     });
 
@@ -350,8 +382,18 @@ function ExperimentEditorModal({ experiment, onClose, onSave }) {
 
     const handleSubmit = (e) => {
         e.preventDefault();
+        const tierKey = normalizeResourceTier(formData.resource_tier || formData.resources?.resource_tier);
+        const tier = resourceTiers.find((item) => item.key === tierKey) || DEFAULT_RESOURCE_TIERS[0];
         onSave({
             ...formData,
+            resource_tier: tierKey,
+            resources: {
+                ...(formData.resources || {}),
+                cpu: Number(tier.cpu_limit) || 1,
+                memory: tier.memory_limit || '2G',
+                storage: tier.storage_limit || '2G',
+                resource_tier: tierKey,
+            },
             tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean)
         });
     };
@@ -424,6 +466,17 @@ function ExperimentEditorModal({ experiment, onClose, onSave }) {
                                 value={formData.notebook_path}
                                 onChange={e => setFormData({ ...formData, notebook_path: e.target.value })}
                             />
+                        </div>
+                        <div className="form-group">
+                            <label>实验资源档位</label>
+                            <select
+                                value={formData.resource_tier}
+                                onChange={e => setFormData({ ...formData, resource_tier: e.target.value })}
+                            >
+                                {(resourceTiers || DEFAULT_RESOURCE_TIERS).map((tier) => (
+                                    <option key={tier.key} value={tier.key}>{resourceTierLabel(tier)}</option>
+                                ))}
+                            </select>
                         </div>
                     </div>
 

@@ -54,6 +54,7 @@ class StudentService:
             publish_scope = self.main.PublishScope(publish_scope)
         except ValueError:
             publish_scope = self.main.PublishScope.ALL
+        resources = dict(row.resources or {})
         return self.main.Experiment(
             id=row.id,
             course_id=row.course_id,
@@ -63,7 +64,8 @@ class StudentService:
             difficulty=difficulty,
             tags=list(row.tags or []),
             notebook_path=row.notebook_path or "",
-            resources=dict(row.resources or {}),
+            resources=resources,
+            resource_tier=resources.get("resource_tier") or "small",
             deadline=row.deadline,
             created_at=row.created_at,
             created_by=row.created_by,

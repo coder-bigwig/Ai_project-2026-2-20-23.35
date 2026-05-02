@@ -17,6 +17,7 @@ from ..repositories import (
     UserRepository,
 )
 from .identity_service import ensure_teacher_or_admin, normalize_text, resolve_user_role
+from .jupyter_resource_service import prepare_experiment_jupyter_quota
 
 
 class SubmissionService:
@@ -44,6 +45,7 @@ class SubmissionService:
             publish_scope = self.main.PublishScope(publish_scope)
         except ValueError:
             publish_scope = self.main.PublishScope.ALL
+        resources = dict(row.resources or {})
         return self.main.Experiment(
             id=row.id,
             course_id=row.course_id,
@@ -53,7 +55,8 @@ class SubmissionService:
             difficulty=difficulty,
             tags=list(row.tags or []),
             notebook_path=row.notebook_path or "",
-            resources=dict(row.resources or {}),
+            resources=resources,
+            resource_tier=resources.get("resource_tier") or "small",
             deadline=row.deadline,
             created_at=row.created_at,
             created_by=row.created_by,
@@ -145,7 +148,7 @@ class SubmissionService:
         normalized, _ = await ensure_teacher_or_admin(self.db, username)
         return normalized
 
-    async def start_experiment(self, experiment_id: str, student_id: str):
+    async def start_experiment(self, experiment_id: str, student_id: str, force_restart: bool = False):
         student_id = normalize_text(student_id)
         if not student_id:
             raise HTTPException(status_code=400, detail="student_id不能为空")
@@ -167,6 +170,18 @@ class SubmissionService:
 
         user_notebook_name = f"{student_id}_{experiment_id[:8]}.ipynb"
         notebook_relpath = f"work/{user_notebook_name}"
+
+        resource_payload = None
+        if self.main._jupyterhub_enabled():
+            resource_payload = await prepare_experiment_jupyter_quota(
+                self.db,
+                main_module=self.main,
+                username=student_id,
+                experiment=experiment,
+                role="student",
+                course_id=experiment.course_id or "",
+                force_restart=force_restart,
+            )
 
         if student_exp is None:
             payload = {
@@ -237,6 +252,8 @@ class SubmissionService:
             "student_experiment_id": student_exp.id,
             "message": "实验环境已启动",
         })
+        if resource_payload:
+            payload.update(resource_payload)
         return payload
 
     async def submit_experiment(self, student_exp_id: str, submission):

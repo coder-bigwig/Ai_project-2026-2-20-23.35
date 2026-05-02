@@ -10,6 +10,14 @@ def _parse_int_env(name: str, default: int) -> int:
     except ValueError:
         return default
 
+
+def _parse_float_env(name: str, default: float) -> float:
+    raw = str(os.getenv(name, str(default)) or str(default)).strip()
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
 APP_TITLE = "福州理工学院AI编程实践教学平台 - 实验管理API"
 
 JUPYTERHUB_INTERNAL_URL = os.getenv("JUPYTERHUB_INTERNAL_URL", "http://jupyterhub:8000").rstrip("/")
@@ -75,6 +83,28 @@ DEFAULT_RESOURCE_ROLE_LIMITS = {
     "student": {"cpu_limit": 2.0, "memory_limit": "8G", "storage_limit": "2G"},
     "teacher": {"cpu_limit": 2.0, "memory_limit": "8G", "storage_limit": "2G"},
     "admin": {"cpu_limit": 4.0, "memory_limit": "8G", "storage_limit": "20G"},
+}
+DEFAULT_RESOURCE_TIER = "small"
+RESOURCE_TIER_ORDER = ("small", "medium", "large", "xlarge")
+
+
+def _resource_tier_payload(key: str, label: str, cpu: float, memory: str, storage: str, max_users: int) -> dict:
+    prefix = f"RESOURCE_{key.upper()}"
+    return {
+        "key": key,
+        "label": os.getenv(f"{prefix}_LABEL", label),
+        "cpu_limit": _parse_float_env(f"{prefix}_CPU", cpu),
+        "memory_limit": os.getenv(f"{prefix}_MEMORY", memory),
+        "storage_limit": os.getenv(f"{prefix}_STORAGE", storage),
+        "max_users": max(1, _parse_int_env(f"{prefix}_MAX_USERS", max_users)),
+    }
+
+
+RESOURCE_TIERS = {
+    "small": _resource_tier_payload("small", "小实验", 1.0, "2G", "2G", 20),
+    "medium": _resource_tier_payload("medium", "普通实验", 1.0, "4G", "4G", 12),
+    "large": _resource_tier_payload("large", "大项目", 2.0, "8G", "8G", 5),
+    "xlarge": _resource_tier_payload("xlarge", "超大项目", 4.0, "16G", "20G", 2),
 }
 DEFAULT_SERVER_RESOURCE_BUDGET = {
     "max_total_cpu": 64.0,

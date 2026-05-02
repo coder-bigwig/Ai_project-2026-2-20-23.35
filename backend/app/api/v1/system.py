@@ -17,7 +17,11 @@ from ...repositories import (
     UserRepository,
 )
 from ...services.kv_policy_service import default_resource_policy_payload
-from ...services.usage_monitor_service import build_cached_jupyter_usage_report, load_usage_monitor_state
+from ...services.usage_monitor_service import (
+    build_cached_jupyter_usage_report,
+    load_usage_monitor_state,
+    sync_and_build_jupyter_usage_report,
+)
 
 router = APIRouter()
 METRICS_TIMEZONE = ZoneInfo("Asia/Shanghai")
@@ -35,6 +39,62 @@ def _prom_metric_line(name: str, value, labels: dict[str, str] | None = None) ->
         for key in sorted(labels)
     )
     return f"{name}{{{serialized}}} {value}"
+
+
+def _normalize_metric_username(value) -> str:
+    return str(value or "").strip()
+
+
+def _normalize_metric_role(value) -> str:
+    role = str(value or "").strip().lower()
+    return role if role in {"teacher", "student", "admin"} else ""
+
+
+async def _collect_usage_monitor_user_roles(
+    user_repo: UserRepository,
+    auth_user_repo: AuthUserRepository,
+) -> dict[str, str]:
+    user_roles: dict[str, str] = {}
+
+    for row in await auth_user_repo.list_all():
+        username = _normalize_metric_username(row.username or row.email)
+        role = _normalize_metric_role(getattr(row.role, "value", row.role))
+        if username and role:
+            user_roles[username] = role
+
+    for role in ("teacher", "student"):
+        for row in await user_repo.list_by_role(role):
+            username = _normalize_metric_username(getattr(row, "username", "") or getattr(row, "student_id", ""))
+            if username and username not in user_roles:
+                user_roles[username] = role
+
+    return user_roles
+
+
+async def _build_jupyter_usage_report_for_metrics(
+    db: AsyncSession,
+    user_repo: UserRepository,
+    auth_user_repo: AuthUserRepository,
+) -> dict:
+    try:
+        from ... import main
+
+        user_roles = await _collect_usage_monitor_user_roles(user_repo, auth_user_repo)
+        usage_report, changed = await sync_and_build_jupyter_usage_report(
+            db,
+            main_module=main,
+            user_roles=user_roles,
+        )
+        if changed:
+            await db.commit()
+        return usage_report
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        usage_state = await load_usage_monitor_state(db)
+        return build_cached_jupyter_usage_report(usage_state)
 
 
 def _metric_period_ranges(now_utc: datetime) -> dict[str, tuple[datetime | None, datetime | None]]:
@@ -115,8 +175,7 @@ async def metrics(db: AsyncSession = Depends(get_db)):
 
     online_learning_students = 0
     try:
-        usage_state = await load_usage_monitor_state(db)
-        usage_report = build_cached_jupyter_usage_report(usage_state)
+        usage_report = await _build_jupyter_usage_report_for_metrics(db, user_repo, auth_user_repo)
         usage_summary = usage_report.get("summary", {}) if isinstance(usage_report, dict) else {}
         online_learning_students = int(usage_summary.get("active_students") or 0)
     except Exception:

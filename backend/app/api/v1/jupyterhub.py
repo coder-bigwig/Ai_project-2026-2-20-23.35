@@ -7,6 +7,7 @@ from ...db.session import get_db
 from ...repositories.experiments import ExperimentRepository
 from ...repositories.users import UserRepository
 from ...services.identity_service import normalize_text, resolve_user_role
+from ...services.jupyter_resource_service import cleanup_active_experiment_session, prepare_experiment_jupyter_quota, public_resource_tiers
 from ...services.usage_monitor_service import record_jupyter_session_start, sync_and_build_jupyter_usage_report
 
 
@@ -31,6 +32,7 @@ def _to_experiment_model(main, row):
     except ValueError:
         publish_scope = main.PublishScope.ALL
 
+    resources = dict(row.resources or {})
     return main.Experiment(
         id=row.id,
         course_id=row.course_id,
@@ -40,7 +42,8 @@ def _to_experiment_model(main, row):
         difficulty=difficulty,
         tags=list(row.tags or []),
         notebook_path=row.notebook_path or "",
-        resources=dict(row.resources or {}),
+        resources=resources,
+        resource_tier=resources.get("resource_tier") or "small",
         deadline=row.deadline,
         created_at=row.created_at,
         created_by=row.created_by,
@@ -74,6 +77,7 @@ def _to_student_record(main, row):
 async def get_jupyterhub_auto_login_url(
     username: str,
     experiment_id: Optional[str] = None,
+    force_restart: bool = False,
     db: AsyncSession = Depends(get_db),
 ):
     """Return a tokenized JupyterLab URL so portal users don't need a second Hub login."""
@@ -115,6 +119,18 @@ async def get_jupyterhub_auto_login_url(
             "message": "JupyterHub token integration is disabled",
         })
         return payload
+
+    resource_payload = None
+    if target_experiment:
+        resource_payload = await prepare_experiment_jupyter_quota(
+            db,
+            main_module=main,
+            username=user,
+            experiment=target_experiment,
+            role=resolved_role or "student",
+            course_id=target_experiment.course_id or "",
+            force_restart=force_restart,
+        )
 
     if not main._ensure_user_server_running(user):
         raise HTTPException(status_code=503, detail="JupyterHub user server failed to start")
@@ -177,6 +193,8 @@ async def get_jupyterhub_auto_login_url(
             "tokenized": False,
             "message": "Failed to mint user token, fell back to non-token URL",
         })
+        if resource_payload:
+            payload.update(resource_payload)
         return payload
 
     payload = main._build_workspace_launch_payload(user, path=notebook_relpath, token=token)
@@ -184,6 +202,8 @@ async def get_jupyterhub_auto_login_url(
         "tokenized": True,
         "message": "ok",
     })
+    if resource_payload:
+        payload.update(resource_payload)
     return payload
 
 
@@ -213,6 +233,15 @@ async def stop_jupyterhub_user_server(
         }
 
     stopped = bool(main._stop_user_server(user))
+    try:
+        await cleanup_active_experiment_session(db, user)
+        await db.commit()
+    except Exception as exc:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        print(f"Active experiment session cleanup after stop error: {exc}")
 
     # Best-effort refresh usage monitor state so admin metrics converge faster after cleanup.
     try:
@@ -242,3 +271,4 @@ async def stop_jupyterhub_user_server(
 
 router.add_api_route("/api/jupyterhub/auto-login-url", get_jupyterhub_auto_login_url, methods=["GET"])
 router.add_api_route("/api/jupyterhub/stop-server", stop_jupyterhub_user_server, methods=["POST"])
+router.add_api_route("/api/resource-tiers", public_resource_tiers, methods=["GET"])

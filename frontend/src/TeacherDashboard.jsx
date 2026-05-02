@@ -18,6 +18,22 @@ import {
 import './TeacherDashboard.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
+const DEFAULT_RESOURCE_TIERS = [
+  { key: 'small', label: '小实验', cpu_limit: 1, memory_limit: '2G', storage_limit: '2G' },
+  { key: 'medium', label: '普通实验', cpu_limit: 1, memory_limit: '4G', storage_limit: '4G' },
+  { key: 'large', label: '大项目', cpu_limit: 2, memory_limit: '8G', storage_limit: '8G' },
+  { key: 'xlarge', label: '超大项目', cpu_limit: 4, memory_limit: '16G', storage_limit: '20G' },
+];
+
+function normalizeResourceTier(value) {
+  const key = String(value || '').trim().toLowerCase();
+  return DEFAULT_RESOURCE_TIERS.some((item) => item.key === key) ? key : 'small';
+}
+
+function resourceTierLabel(item) {
+  if (!item) return '小实验：1 CPU / 2G 内存';
+  return `${item.label || item.key}：${item.cpu_limit} CPU / ${item.memory_limit} 内存`;
+}
 const TEACHER_COURSE_RESUME_KEY = 'teacherCourseResumeId';
 const JUPYTERHUB_URL = process.env.REACT_APP_JUPYTERHUB_URL || '';
 const DEFAULT_JUPYTERHUB_URL = `${window.location.origin}/jupyter/hub/home`;
@@ -215,6 +231,7 @@ function TeacherDashboard({ username, userRole, onLogout }) {
   const [showExperimentEditor, setShowExperimentEditor] = useState(false);
   const [editingExperiment, setEditingExperiment] = useState(null);
   const [targetCourse, setTargetCourse] = useState(null);
+  const [resourceTiers, setResourceTiers] = useState(DEFAULT_RESOURCE_TIERS);
 
   const currentTab = tabs.find((item) => item.key === activeTab) || tabs[0];
 
@@ -231,6 +248,22 @@ function TeacherDashboard({ username, userRole, onLogout }) {
       setLoadingCourses(false);
     }
   }, [username]);
+
+  useEffect(() => {
+    let cancelled = false;
+    axios.get(`${API_BASE_URL}/api/resource-tiers`)
+      .then((res) => {
+        if (cancelled) return;
+        const tiers = Array.isArray(res.data) && res.data.length > 0 ? res.data : DEFAULT_RESOURCE_TIERS;
+        setResourceTiers(tiers);
+      })
+      .catch(() => {
+        if (!cancelled) setResourceTiers(DEFAULT_RESOURCE_TIERS);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const loadProgress = useCallback(async () => {
     setLoadingProgress(true);
@@ -360,25 +393,38 @@ function TeacherDashboard({ username, userRole, onLogout }) {
     }
   };
 
-  const buildExperimentPayload = (experiment, formData, course) => ({
-    ...experiment,
-    title: formData.title,
-    description: formData.description,
-    difficulty: formData.difficulty,
-    tags: parseTags(formData.tags),
-    notebook_path: formData.notebook_path,
-    published: Boolean(formData.published),
-    publish_scope: normalizePublishScope(formData.publish_scope ?? experiment.publish_scope),
-    target_class_names: normalizeStringArray(formData.target_class_names ?? experiment.target_class_names),
-    target_student_ids: normalizeStringArray(formData.target_student_ids ?? experiment.target_student_ids),
-    course_id: course.id,
-    course_name: course.name,
-    created_by: experiment.created_by || username,
-    created_at: experiment.created_at || new Date().toISOString(),
-    resources: experiment.resources || { cpu: 1.0, memory: '2G', storage: '1G' },
-  });
+  const buildExperimentPayload = (experiment, formData, course) => {
+    const tierKey = normalizeResourceTier(formData.resource_tier ?? experiment.resource_tier ?? experiment.resources?.resource_tier);
+    const tier = resourceTiers.find((item) => item.key === tierKey) || DEFAULT_RESOURCE_TIERS[0];
+    return {
+      ...experiment,
+      title: formData.title,
+      description: formData.description,
+      difficulty: formData.difficulty,
+      tags: parseTags(formData.tags),
+      notebook_path: formData.notebook_path,
+      published: Boolean(formData.published),
+      publish_scope: normalizePublishScope(formData.publish_scope ?? experiment.publish_scope),
+      target_class_names: normalizeStringArray(formData.target_class_names ?? experiment.target_class_names),
+      target_student_ids: normalizeStringArray(formData.target_student_ids ?? experiment.target_student_ids),
+      course_id: course.id,
+      course_name: course.name,
+      created_by: experiment.created_by || username,
+      created_at: experiment.created_at || new Date().toISOString(),
+      resource_tier: tierKey,
+      resources: {
+        ...(experiment.resources || {}),
+        cpu: Number(tier.cpu_limit) || 1,
+        memory: tier.memory_limit || '2G',
+        storage: tier.storage_limit || '2G',
+        resource_tier: tierKey,
+      },
+    };
+  };
 
   const handleCreateExperiment = async (course, formData) => {
+    const tierKey = normalizeResourceTier(formData.resource_tier);
+    const tier = resourceTiers.find((item) => item.key === tierKey) || DEFAULT_RESOURCE_TIERS[0];
     const payload = {
       title: formData.title,
       description: formData.description,
@@ -392,6 +438,13 @@ function TeacherDashboard({ username, userRole, onLogout }) {
       course_id: course.id,
       course_name: course.name,
       created_by: course?.created_by || username,
+      resource_tier: tierKey,
+      resources: {
+        cpu: Number(tier.cpu_limit) || 1,
+        memory: tier.memory_limit || '2G',
+        storage: tier.storage_limit || '2G',
+        resource_tier: tierKey,
+      },
     };
     const res = await axios.post(`${API_BASE_URL}/api/experiments`, payload);
     await loadCourses();
@@ -673,6 +726,7 @@ function TeacherDashboard({ username, userRole, onLogout }) {
           username={username}
           course={targetCourse}
           initialExperiment={editingExperiment}
+          resourceTiers={resourceTiers}
           onClose={() => {
             setShowExperimentEditor(false);
             setEditingExperiment(null);
@@ -1253,7 +1307,7 @@ function CourseEditorModal({ initialCourse, onClose, onCreate, onUpdate }) {
   );
 }
 
-function ExperimentEditorModal({ username, course, initialExperiment, onClose, onCreate, onUpdate }) {
+function ExperimentEditorModal({ username, course, initialExperiment, resourceTiers = DEFAULT_RESOURCE_TIERS, onClose, onCreate, onUpdate }) {
   const isEdit = Boolean(initialExperiment);
   const [formData, setFormData] = useState(() => ({
     title: initialExperiment?.title || '',
@@ -1265,6 +1319,7 @@ function ExperimentEditorModal({ username, course, initialExperiment, onClose, o
     publish_scope: normalizeEditorPublishScope(initialExperiment?.publish_scope),
     target_class_names: normalizeStringArray(initialExperiment?.target_class_names),
     target_student_ids: normalizeStringArray(initialExperiment?.target_student_ids),
+    resource_tier: normalizeResourceTier(initialExperiment?.resource_tier || initialExperiment?.resources?.resource_tier),
   }));
   const [targets, setTargets] = useState({ classes: [], students: [] });
   const [loadingTargets, setLoadingTargets] = useState(false);
@@ -1425,6 +1480,18 @@ function ExperimentEditorModal({ username, course, initialExperiment, onClose, o
           <div className="form-group">
             <label htmlFor="experiment-notebook">Notebook 路径</label>
             <input id="experiment-notebook" type="text" value={formData.notebook_path} onChange={(e) => setFormData({ ...formData, notebook_path: e.target.value })} placeholder="course/example.ipynb" />
+          </div>
+          <div className="form-group">
+            <label htmlFor="experiment-resource-tier">实验资源档位</label>
+            <select
+              id="experiment-resource-tier"
+              value={formData.resource_tier}
+              onChange={(e) => setFormData({ ...formData, resource_tier: e.target.value })}
+            >
+              {(resourceTiers || DEFAULT_RESOURCE_TIERS).map((tier) => (
+                <option key={tier.key} value={tier.key}>{resourceTierLabel(tier)}</option>
+              ))}
+            </select>
           </div>
           <div className="form-group">
             <label htmlFor="experiment-attachments">附件上传（可选，可多选）</label>

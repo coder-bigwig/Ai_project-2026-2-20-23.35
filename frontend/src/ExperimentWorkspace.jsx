@@ -703,6 +703,25 @@ function ExperimentWorkspace() {
         setShowCodeServerFallback(false);
     };
 
+    const handleResourceLaunchError = async (error, retryFn) => {
+        const detail = error?.response?.data?.detail;
+        const code = detail && typeof detail === 'object' ? detail.code : '';
+        if (code === 'RESOURCE_LIMIT_REACHED') {
+            alert(detail.message || '当前实验环境人数较多，请稍后再试');
+            return null;
+        }
+        if (code === 'RESTART_REQUIRED') {
+            const required = detail.required_quota || {};
+            const summary = required.cpu_limit && required.memory_limit
+                ? `${required.cpu_limit} CPU / ${required.memory_limit} 内存`
+                : '更高资源';
+            const ok = window.confirm(`当前实验需要 ${summary}，需要重启实验环境后进入。请先保存 Notebook，再继续。`);
+            if (!ok) return null;
+            return retryFn(true);
+        }
+        throw error;
+    };
+
     const patchJupyterUiOnce = () => {
         if (!isJupyterWorkspace) return false;
         const iframe = jupyterIframeRef.current;
@@ -820,19 +839,33 @@ function ExperimentWorkspace() {
             }
 
             if (isTeacherOrAdmin) {
-                const hubResp = await axios.get(
+                const fetchHubLaunch = (forceRestart = false) => axios.get(
                     `${API_BASE_URL}/api/jupyterhub/auto-login-url`,
-                    { params: { username, experiment_id: experimentId } }
+                    { params: { username, experiment_id: experimentId, force_restart: forceRestart } }
                 );
+                let hubResp = null;
+                try {
+                    hubResp = await fetchHubLaunch(false);
+                } catch (launchError) {
+                    hubResp = await handleResourceLaunchError(launchError, fetchHubLaunch);
+                    if (!hubResp) return;
+                }
                 applyWorkspaceResponse(hubResp?.data);
                 return;
             }
 
-            const startRes = await axios.post(
+            const fetchStudentLaunch = (forceRestart = false) => axios.post(
                 `${API_BASE_URL}/api/student-experiments/start/${experimentId}`,
                 null,
-                { params: { student_id: username } }
+                { params: { student_id: username, force_restart: forceRestart } }
             );
+            let startRes = null;
+            try {
+                startRes = await fetchStudentLaunch(false);
+            } catch (launchError) {
+                startRes = await handleResourceLaunchError(launchError, fetchStudentLaunch);
+                if (!startRes) return;
+            }
             applyWorkspaceResponse(startRes.data);
 
             if (startRes.data.student_experiment_id) {

@@ -210,6 +210,7 @@ class Experiment(BaseModel):
     tags: List[str] = []
     notebook_path: Optional[str] = None
     resources: dict = {"cpu": 1.0, "memory": "2G", "storage": "1G"}
+    resource_tier: str = "small"
     deadline: Optional[datetime] = None
     created_at: datetime = None
     created_by: str

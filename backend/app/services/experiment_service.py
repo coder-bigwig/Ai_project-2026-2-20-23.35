@@ -56,6 +56,7 @@ class ExperimentService:
         except ValueError:
             publish_scope = self.main.PublishScope.ALL
 
+        resources = dict(row.resources or {})
         return self.main.Experiment(
             id=row.id,
             course_id=row.course_id,
@@ -65,7 +66,8 @@ class ExperimentService:
             difficulty=difficulty,
             tags=list(row.tags or []),
             notebook_path=row.notebook_path or None,
-            resources=dict(row.resources or {}),
+            resources=resources,
+            resource_tier=resources.get("resource_tier") or "small",
             deadline=row.deadline,
             created_at=row.created_at,
             created_by=row.created_by,
@@ -93,6 +95,9 @@ class ExperimentService:
     def _to_experiment_payload(self, experiment: "Experiment") -> dict:
         now = datetime.now()
         created_at = self._safe_datetime(experiment.created_at, now)
+        resources = dict(experiment.resources or {})
+        resource_tier = self.main._normalize_text(getattr(experiment, "resource_tier", "")) or self.main._normalize_text(resources.get("resource_tier")) or "small"
+        resources["resource_tier"] = resource_tier
         return {
             "id": experiment.id,
             "course_id": experiment.course_id,
@@ -102,7 +107,7 @@ class ExperimentService:
             "difficulty": str(getattr(experiment.difficulty, "value", experiment.difficulty or "")),
             "tags": list(experiment.tags or []),
             "notebook_path": experiment.notebook_path or "",
-            "resources": dict(experiment.resources or {}),
+            "resources": resources,
             "deadline": self._safe_datetime(experiment.deadline),
             "created_at": created_at,
             "updated_at": now,
