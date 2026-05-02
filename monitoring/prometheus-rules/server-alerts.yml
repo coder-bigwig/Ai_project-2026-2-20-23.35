@@ -1,0 +1,56 @@
+groups:
+  - name: server-runtime-alerts
+    rules:
+      - alert: ServiceTargetDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "服务采集目标不可用"
+          description: "{{ $labels.job }} on {{ $labels.instance }} has been down for more than 1 minute."
+
+      - alert: HostCpuUsageHigh
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "服务器 CPU 使用率过高"
+          description: "{{ $labels.instance }} CPU usage is above 85% for more than 5 minutes."
+
+      - alert: HostMemoryUsageHigh
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "服务器内存使用率过高"
+          description: "{{ $labels.instance }} memory usage is above 90% for more than 5 minutes."
+
+      - alert: HostDiskSpaceLow
+        expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"})) * 100 > 85
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "服务器磁盘空间不足"
+          description: "{{ $labels.instance }} {{ $labels.mountpoint }} disk usage is above 85%."
+
+      - alert: ContainerRestartedRecently
+        expr: changes(container_start_time_seconds{container_label_com_docker_compose_service!=""}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "容器发生重启"
+          description: "{{ $labels.container_label_com_docker_compose_service }} restarted in the last 5 minutes."
+
+      - alert: ContainerOomKilled
+        expr: increase(container_oom_events_total{container_label_com_docker_compose_service!=""}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "容器发生 OOM"
+          description: "{{ $labels.container_label_com_docker_compose_service }} had OOM events in the last 5 minutes."
