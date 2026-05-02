@@ -1,4 +1,4 @@
-﻿from typing import Optional
+﻿from typing import Any, Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +14,7 @@ from ...services.usage_monitor_service import record_jupyter_session_start, sync
 def _get_main_module():
     from ... import main
 
-    return main
+    return cast(Any, main)
 
 
 router = APIRouter()
@@ -245,7 +245,7 @@ async def stop_jupyterhub_user_server(
 
     # Best-effort refresh usage monitor state so admin metrics converge faster after cleanup.
     try:
-        report, changed = await sync_and_build_jupyter_usage_report(
+        _, changed = await sync_and_build_jupyter_usage_report(
             db,
             main_module=main,
             user_roles={user: resolved_role},
