@@ -19,6 +19,7 @@ services:
       - frontend
       - experiment-manager
       - jupyterhub
+      - deeptutor
       - grafana
     networks:
       - training-network
@@ -199,6 +200,45 @@ services:
       MAX_HISTORY: ${MAX_HISTORY:-10}
     restart: unless-stopped
 
+  deeptutor:
+    image: ghcr.io/hkuds/deeptutor:latest
+    ports:
+      - "127.0.0.1:${DEEPTUTOR_BACKEND_PORT:-18101}:18101"
+      - "127.0.0.1:${DEEPTUTOR_FRONTEND_PORT:-13782}:13782"
+    networks:
+      - training-network
+    environment:
+      BACKEND_PORT: 18101
+      FRONTEND_PORT: 13782
+      NEXT_PUBLIC_API_BASE: ${DEEPTUTOR_PUBLIC_API_BASE:-/deeptutor-api}
+      LLM_BINDING: ${DEEPTUTOR_LLM_BINDING:-deepseek}
+      LLM_MODEL: ${DEEPTUTOR_LLM_MODEL:-deepseek-chat}
+      LLM_API_KEY: ${DEEPTUTOR_LLM_API_KEY:-${DEEPSEEK_API_KEY:-}}
+      LLM_HOST: ${DEEPTUTOR_LLM_HOST:-https://api.deepseek.com}
+      LLM_API_VERSION: ${DEEPTUTOR_LLM_API_VERSION:-}
+      EMBEDDING_BINDING: ${DEEPTUTOR_EMBEDDING_BINDING:-openai}
+      EMBEDDING_MODEL: ${DEEPTUTOR_EMBEDDING_MODEL:-text-embedding-3-large}
+      EMBEDDING_API_KEY: ${DEEPTUTOR_EMBEDDING_API_KEY:-${OPENAI_API_KEY:-}}
+      EMBEDDING_HOST: ${DEEPTUTOR_EMBEDDING_HOST:-https://api.openai.com/v1}
+      EMBEDDING_DIMENSION: ${DEEPTUTOR_EMBEDDING_DIMENSION:-3072}
+      EMBEDDING_API_VERSION: ${DEEPTUTOR_EMBEDDING_API_VERSION:-}
+      EMBEDDING_SEND_DIMENSIONS: ${DEEPTUTOR_EMBEDDING_SEND_DIMENSIONS:-}
+      SEARCH_PROVIDER: ${DEEPTUTOR_SEARCH_PROVIDER:-}
+      SEARCH_API_KEY: ${DEEPTUTOR_SEARCH_API_KEY:-}
+      SEARCH_BASE_URL: ${DEEPTUTOR_SEARCH_BASE_URL:-}
+      DISABLE_SSL_VERIFY: ${DEEPTUTOR_DISABLE_SSL_VERIFY:-false}
+    volumes:
+      - deeptutor-user-data:/app/data/user
+      - deeptutor-knowledge-bases:/app/data/knowledge_bases
+      - ./deeptutor-overrides/settings.py:/app/deeptutor/api/routers/settings.py:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:18101/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
   prometheus:
     image: prom/prometheus:latest
     volumes:
@@ -323,3 +363,5 @@ volumes:
   grafana-data:
   course-materials:
   shared-datasets:
+  deeptutor-user-data:
+  deeptutor-knowledge-bases:
