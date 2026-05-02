@@ -1,0 +1,28 @@
+services:
+  nginx:
+    ports: !override
+      - "18080:80"
+
+  deeptutor:
+    environment:
+      NEXT_PUBLIC_API_BASE: http://localhost:18080/deeptutor-api
+    volumes:
+      - ./deeptutor-overrides/settings.py:/app/deeptutor/api/routers/settings.py:ro
+
+  grafana:
+    ports: !override
+      - "13001:3000"
+    environment:
+      GRAFANA_ROOT_URL: http://localhost:18080/grafana/
+
+  ai-assistant:
+    ports: !override
+      - "18002:8000"
+
+  jupyterhub:
+    ports: !override
+      - "18003:8000"
+
+  experiment-manager:
+    ports: !override
+      - "18001:8000"

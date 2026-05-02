@@ -105,6 +105,15 @@
   background: rgba(16, 31, 56, 0.32);
 }
 
+.teacher-lab-jhub-tutor {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.72);
+}
+
+.teacher-lab-jhub-tutor:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
 .teacher-lab-logout {
   border: 1px solid rgba(255, 255, 255, 0.45);
   background: transparent;

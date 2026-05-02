@@ -12,8 +12,8 @@ import {
 import './StudentPortal.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
-const JUPYTERHUB_URL = process.env.REACT_APP_JUPYTERHUB_URL || 'http://localhost:8003';
-const AI_URL = process.env.REACT_APP_AI_URL || 'http://localhost:8002';
+const JUPYTERHUB_URL = process.env.REACT_APP_JUPYTERHUB_URL || '/jupyter/';
+const AI_URL = process.env.REACT_APP_AI_URL || '/ai';
 
 // ==================== 主组件 ====================
 

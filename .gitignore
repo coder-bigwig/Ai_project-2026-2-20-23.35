@@ -14,5 +14,7 @@ tmp_*.csv
 tmp_*.html
 .tmp_*.html
 .tmp-grafana*.db
+.edge-tmp/
+.edge-tmp-verify/
 
 _pack_check/

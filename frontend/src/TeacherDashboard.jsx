@@ -540,10 +540,11 @@ function TeacherDashboard({ username, userRole, onLogout }) {
           <span className="teacher-lab-avatar">{(username || 'T').slice(0, 1).toUpperCase()}</span>
           <div className="teacher-lab-user-text">
             <span className="teacher-lab-user-name">教师账号：{username}</span>
-            <span className="teacher-lab-user-role">角色：{isAdmin ? '系统管理员' : '教师管理员'}</span>
+          <span className="teacher-lab-user-role">角色：{isAdmin ? '系统管理员' : '教师管理员'}</span>
           </div>
           <button type="button" className="teacher-lab-jhub" onClick={openJupyterHub}>进入 JupyterHub</button>
           <button type="button" className="teacher-lab-jhub teacher-lab-jhub-code" onClick={openCodeServer}>进入 VS Code</button>
+          <button type="button" className="teacher-lab-jhub teacher-lab-jhub-tutor" onClick={() => navigate('/deeptutor/')}>DeepTutor</button>
           <button type="button" className="teacher-lab-logout" onClick={logout}>退出</button>
         </div>
       </header>

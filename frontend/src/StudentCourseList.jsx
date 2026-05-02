@@ -11,6 +11,7 @@ const TEXT = {
     platformTitle: '福州理工学院AI编程实践教学平台',
     platformSubTitle: 'FUZHOU INSTITUTE OF TECHNOLOGY · AI PROGRAMMING PRACTICE TEACHING PLATFORM',
     logout: '\u9000\u51fa',
+    deepTutor: 'DeepTutor',
     namePrefix: '\u59d3\u540d',
     classPrefix: '\u73ed\u7ea7',
     studentIdPrefix: '\u5b66\u53f7',
@@ -435,6 +436,9 @@ function StudentCourseList({ username, onLogout }) {
                         <span className="lab-user-name">{`${TEXT.namePrefix}\uff1a${realName || username}`}</span>
                         <span className="lab-user-meta">{`${TEXT.classPrefix}\uff1a${classDisplay}  ${TEXT.studentIdPrefix}\uff1a${studentId}`}</span>
                     </div>
+                    <button type="button" className="lab-deeptutor-btn" onClick={() => navigate('/deeptutor/')}>
+                        {TEXT.deepTutor}
+                    </button>
                     <button type="button" className="lab-logout-btn" onClick={handleLogout}>
                         {TEXT.logout}
                     </button>

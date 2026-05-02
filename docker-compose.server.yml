@@ -181,6 +181,7 @@ services:
     image: prom/prometheus:latest
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus-rules:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
     ports:
       - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
@@ -190,6 +191,58 @@ services:
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
+
+  loki:
+    image: grafana/loki:2.9.8
+    volumes:
+      - ./monitoring/loki-config.yml:/etc/loki/local-config.yml:ro
+      - loki-data:/loki
+    ports:
+      - "127.0.0.1:${LOKI_PORT:-3100}:3100"
+    networks:
+      - training-network
+    restart: unless-stopped
+    command:
+      - "-config.file=/etc/loki/local-config.yml"
+
+  promtail:
+    image: grafana/promtail:2.9.8
+    volumes:
+      - ./monitoring/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    networks:
+      - training-network
+    depends_on:
+      - loki
+    restart: unless-stopped
+    command:
+      - "-config.file=/etc/promtail/config.yml"
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    volumes:
+      - /:/host:ro,rslave
+    networks:
+      - training-network
+    restart: unless-stopped
+    command:
+      - "--path.rootfs=/host"
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    networks:
+      - training-network
+    restart: unless-stopped
+    command:
+      - "--docker_only=true"
+      - "--housekeeping_interval=30s"
 
   grafana:
     image: grafana/grafana:latest
@@ -203,14 +256,36 @@ services:
       - training-network
     environment:
       DB_PASSWORD: ${DB_PASSWORD:-changeme}
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-fit_admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-fit350506}
+      GF_USERS_ALLOW_SIGN_UP: "false"
       GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost/grafana/}
       GF_SERVER_SERVE_FROM_SUB_PATH: ${GRAFANA_SERVE_FROM_SUB_PATH:-true}
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/training-platform-overview.json
       GF_INSTALL_PLUGINS: ${GF_INSTALL_PLUGINS:-grafana-piechart-panel}
     depends_on:
       - prometheus
+      - loki
     restart: unless-stopped
+
+  grafana-init-users:
+    image: curlimages/curl:8.10.1
+    volumes:
+      - ./monitoring/grafana-init-users.sh:/scripts/grafana-init-users.sh:ro
+    networks:
+      - training-network
+    environment:
+      GRAFANA_URL: http://grafana:3000
+      GRAFANA_ADMIN_LOGIN: ${GRAFANA_ADMIN_USER:-fit_admin}
+      GRAFANA_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-fit350506}
+      GRAFANA_TEACHER_PASSWORD: ${GRAFANA_TEACHER_PASSWORD:-fit350506}
+      GRAFANA_TEACHER_LOGINS: ${GRAFANA_TEACHER_LOGINS:-teacher_001 teacher_002 teacher_003 teacher_004 teacher_005}
+    depends_on:
+      - grafana
+    restart: "no"
+    command:
+      - sh
+      - /scripts/grafana-init-users.sh
 
 networks:
   training-network:
@@ -222,6 +297,7 @@ volumes:
   training-uploads:
   jupyterhub-data:
   prometheus-data:
+  loki-data:
   grafana-data:
   course-materials:
   shared-datasets:

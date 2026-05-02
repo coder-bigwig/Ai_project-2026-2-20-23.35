@@ -5,6 +5,7 @@ import TeacherDashboard from './TeacherDashboard';
 import StudentCourseList from './StudentCourseList';
 import ExperimentWorkspace from './ExperimentWorkspace';
 import FloatingAIAssistant from './FloatingAIAssistant';
+import DeepTutorFrame from './DeepTutorFrame';
 import './App.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
@@ -295,6 +296,10 @@ function App() {
                 <Route
                     path="/workspace/:experimentId"
                     element={isLoggedIn ? <ExperimentWorkspace /> : <Navigate to="/login" replace />}
+                />
+                <Route
+                    path="/deeptutor/*"
+                    element={isLoggedIn ? <DeepTutorFrame /> : <Navigate to="/login" replace />}
                 />
                 <Route
                     path="/"

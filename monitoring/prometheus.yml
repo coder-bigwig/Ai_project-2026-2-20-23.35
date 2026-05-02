@@ -1,22 +1,39 @@
 global:
   scrape_interval: 15s
 
-scrape_configs:
-  - job_name: 'prometheus'
-    static_configs:
-      - targets: ['localhost:9090']
+rule_files:
+  - /etc/prometheus/rules/*.yml
 
-  - job_name: 'jupyterhub'
-    metrics_path: '/jupyter/hub/metrics'
+scrape_configs:
+  - job_name: prometheus
     static_configs:
-      - targets: ['jupyterhub:8000']
-    
-  - job_name: 'backend'
-    metrics_path: '/metrics'
+      - targets:
+          - localhost:9090
+
+  - job_name: jupyterhub
+    metrics_path: /jupyter/hub/metrics
     static_configs:
-      - targets: ['experiment-manager:8000']
-      
-  # 监控主机（如果开启node-exporter）
-  # - job_name: 'node'
-  #   static_configs:
-  #     - targets: ['node-exporter:9100']
+      - targets:
+          - jupyterhub:8000
+
+  - job_name: backend
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - experiment-manager:8000
+
+  - job_name: node-exporter
+    static_configs:
+      - targets:
+          - node-exporter:9100
+
+  - job_name: cadvisor
+    static_configs:
+      - targets:
+          - cadvisor:8080
+
+  - job_name: loki
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - loki:3100
