@@ -60,6 +60,14 @@ async def init_db_schema() -> None:
         if POSTGRES_SCHEMA and POSTGRES_SCHEMA != "public":
             await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{POSTGRES_SCHEMA}"'))
         await conn.run_sync(Base.metadata.create_all)
+        resources_table = f'"{POSTGRES_SCHEMA}"."resources"' if POSTGRES_SCHEMA and POSTGRES_SCHEMA != "public" else "resources"
+        await conn.execute(text(f"ALTER TABLE {resources_table} ADD COLUMN IF NOT EXISTS course_id VARCHAR(64)"))
+        await conn.execute(
+            text(
+                f'CREATE INDEX IF NOT EXISTS "ix_resources_course_id_created_at" '
+                f"ON {resources_table} (course_id, created_at)"
+            )
+        )
 
 
 async def close_db_engine() -> None:

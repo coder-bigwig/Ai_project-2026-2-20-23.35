@@ -13,6 +13,7 @@ class ResourceORM(Base, TimestampVersionMixin):
     __tablename__ = "resources"
     __table_args__ = (
         Index("ix_resources_created_by_created_at", "created_by", "created_at"),
+        Index("ix_resources_course_id_created_at", "course_id", "created_at"),
     )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -22,6 +23,7 @@ class ResourceORM(Base, TimestampVersionMixin):
     content_type: Mapped[str] = mapped_column(String(255), nullable=False, default="", server_default=text("''"))
     size: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
     created_by: Mapped[str] = mapped_column(String(128), nullable=False, default="", server_default=text("''"), index=True)
+    course_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class AttachmentORM(Base, TimestampVersionMixin):

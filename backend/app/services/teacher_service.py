@@ -1,19 +1,24 @@
 from __future__ import annotations
 
+import mimetypes
 import os
+import shutil
 import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import ALLOWED_RESOURCE_EXTENSIONS, UPLOAD_DIR
 from ..repositories import (
     AttachmentRepository,
     AuthUserRepository,
     CourseRepository,
     ExperimentRepository,
     PasswordHashRepository,
+    ResourceRepository,
     SecurityQuestionRepository,
     StudentExperimentRepository,
     UserRepository,
@@ -103,6 +108,58 @@ class TeacherService:
 
     async def _ensure_teacher(self, username: str) -> tuple[str, str]:
         return await ensure_teacher_or_admin(self.db, username)
+
+    @staticmethod
+    def _resource_preview_mode(file_type: str) -> str:
+        normalized = normalize_text(file_type).lower().lstrip(".")
+        if normalized == "pdf":
+            return "pdf"
+        if normalized in {"xls", "xlsx"}:
+            return "sheet"
+        if normalized in {"md", "markdown"}:
+            return "markdown"
+        if normalized in {"txt", "csv", "json", "py", "log"}:
+            return "text"
+        if normalized == "docx":
+            return "docx"
+        return "unsupported"
+
+    def _course_resource_payload(self, row, course_id: str) -> dict:
+        preview_mode = self._resource_preview_mode(row.file_type)
+        route_prefix = f"/api/teacher/courses/{course_id}/resources"
+        return {
+            "id": row.id,
+            "filename": row.filename,
+            "file_type": row.file_type,
+            "content_type": row.content_type,
+            "size": row.size,
+            "created_at": row.created_at,
+            "created_by": row.created_by,
+            "course_id": getattr(row, "course_id", None),
+            "preview_mode": preview_mode,
+            "previewable": preview_mode != "unsupported",
+            "preview_url": f"{route_prefix}/{row.id}/preview",
+            "download_url": f"{route_prefix}/{row.id}/download",
+        }
+
+    async def _ensure_owned_course(self, course_id: str, teacher_username: str):
+        normalized_teacher, role = await self._ensure_teacher(teacher_username)
+        normalized_course_id = normalize_text(course_id)
+        row = await CourseRepository(self.db).get(normalized_course_id)
+        if not row or (role != "admin" and normalize_text(row.created_by) != normalized_teacher):
+            raise HTTPException(status_code=404, detail="课程不存在")
+        return row, normalized_teacher, role
+
+    async def _get_course_resource_or_404(self, course_id: str, resource_id: str):
+        normalized_course_id = normalize_text(course_id)
+        row = await ResourceRepository(self.db).get(resource_id)
+        if not row or normalize_text(getattr(row, "course_id", "")) != normalized_course_id:
+            raise HTTPException(status_code=404, detail="资源文件不存在")
+        if not os.path.exists(row.file_path):
+            await ResourceRepository(self.db).delete(resource_id)
+            await self._commit()
+            raise HTTPException(status_code=404, detail="资源文件不存在")
+        return row
 
     async def _update_auth_password(self, username: str, new_hash: str):
         auth_repo = AuthUserRepository(self.db)
@@ -368,13 +425,25 @@ class TeacherService:
                     await att_repo.delete(att.id)
                 await exp_repo.delete(exp.id)
 
+        resource_repo = ResourceRepository(self.db)
+        course_resources = await resource_repo.list_by_course(course_id)
+        removed_resource_count = 0
+        for resource in course_resources:
+            if os.path.exists(resource.file_path):
+                try:
+                    os.remove(resource.file_path)
+                except OSError:
+                    pass
+            await resource_repo.delete(resource.id)
+            removed_resource_count += 1
+
         await course_repo.delete(course_id)
         await append_operation_log(
             self.db,
             operator=normalized_teacher,
             action="courses.delete",
             target=course_id,
-            detail=f"delete_experiments={bool(delete_experiments)}",
+            detail=f"delete_experiments={bool(delete_experiments)}, resources={removed_resource_count}",
         )
         await self._commit()
         return {"message": "课程已删除", "id": course_id}
@@ -411,6 +480,154 @@ class TeacherService:
             "published": published,
             "updated": len(related),
         }
+
+    async def upload_course_resource_file(self, course_id: str, teacher_username: str, file: UploadFile):
+        course, normalized_teacher, _ = await self._ensure_owned_course(course_id, teacher_username)
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="文件名不能为空")
+
+        original_filename = os.path.basename(file.filename)
+        extension = os.path.splitext(original_filename)[1].lower()
+        if extension not in ALLOWED_RESOURCE_EXTENSIONS:
+            raise HTTPException(status_code=400, detail="暂不支持该文件类型")
+
+        normalized_course_id = normalize_text(course.id)
+        safe_filename = original_filename.replace(" ", "_").replace("/", "_").replace("\\", "_")
+        resource_id = str(uuid.uuid4())
+        course_upload_dir = os.path.join(UPLOAD_DIR, "course_resources", normalized_course_id)
+        os.makedirs(course_upload_dir, exist_ok=True)
+        file_path = os.path.join(course_upload_dir, f"resource_{resource_id}_{safe_filename}")
+        try:
+            with open(file_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"文件保存失败: {exc}") from exc
+
+        file_size = os.path.getsize(file_path)
+        if file_size <= 0:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            raise HTTPException(status_code=400, detail="上传文件为空")
+
+        inferred_content_type = file.content_type or mimetypes.guess_type(original_filename)[0] or "application/octet-stream"
+        now = datetime.now()
+        row = await ResourceRepository(self.db).create(
+            {
+                "id": resource_id,
+                "filename": original_filename,
+                "file_path": file_path,
+                "file_type": extension.lstrip("."),
+                "content_type": inferred_content_type,
+                "size": file_size,
+                "created_at": now,
+                "updated_at": now,
+                "created_by": normalized_teacher,
+                "course_id": normalized_course_id,
+            }
+        )
+        course.updated_at = now
+        await append_operation_log(
+            self.db,
+            operator=normalized_teacher,
+            action="course_resources.upload",
+            target=normalized_course_id,
+            detail=f"resource_id={resource_id}, filename={original_filename}",
+        )
+        await self._commit()
+        return self._course_resource_payload(row, normalized_course_id)
+
+    async def list_course_resource_files(
+        self,
+        course_id: str,
+        teacher_username: str,
+        name: Optional[str] = None,
+        file_type: Optional[str] = None,
+    ):
+        course, _, _ = await self._ensure_owned_course(course_id, teacher_username)
+        normalized_course_id = normalize_text(course.id)
+        normalized_name = normalize_text(name).lower()
+        normalized_type = normalize_text(file_type).lower().lstrip(".")
+
+        items = []
+        for row in await ResourceRepository(self.db).list_by_course(normalized_course_id):
+            if normalized_name and normalized_name not in normalize_text(row.filename).lower():
+                continue
+            if normalized_type and normalize_text(row.file_type).lower().lstrip(".") != normalized_type:
+                continue
+            if not os.path.exists(row.file_path):
+                continue
+            items.append(row)
+        items.sort(key=lambda item: item.created_at or datetime.min, reverse=True)
+        payload_items = [self._course_resource_payload(item, normalized_course_id) for item in items]
+        return {"total": len(payload_items), "items": payload_items}
+
+    async def get_course_resource_file_detail(self, course_id: str, resource_id: str, teacher_username: str):
+        course, _, _ = await self._ensure_owned_course(course_id, teacher_username)
+        normalized_course_id = normalize_text(course.id)
+        row = await self._get_course_resource_or_404(normalized_course_id, resource_id)
+
+        payload = self._course_resource_payload(row, normalized_course_id)
+        preview_mode = payload["preview_mode"]
+        if preview_mode in {"markdown", "text"}:
+            payload["preview_text"] = self.main._read_text_preview(row.file_path)
+        elif preview_mode == "docx":
+            try:
+                payload["preview_text"] = self.main._read_docx_preview(row.file_path)
+            except HTTPException as exc:
+                payload["preview_text"] = ""
+                payload["preview_error"] = normalize_text(getattr(exc, "detail", "")) or "Word 文档预览解析失败"
+            except Exception:
+                payload["preview_text"] = ""
+                payload["preview_error"] = "Word 文档预览解析失败"
+        else:
+            payload["preview_text"] = ""
+        return payload
+
+    async def delete_course_resource_file(self, course_id: str, resource_id: str, teacher_username: str):
+        course, normalized_teacher, _ = await self._ensure_owned_course(course_id, teacher_username)
+        normalized_course_id = normalize_text(course.id)
+        row = await self._get_course_resource_or_404(normalized_course_id, resource_id)
+        if os.path.exists(row.file_path):
+            try:
+                os.remove(row.file_path)
+            except OSError as exc:
+                raise HTTPException(status_code=500, detail=f"删除文件失败: {exc}") from exc
+        await ResourceRepository(self.db).delete(resource_id)
+        course.updated_at = datetime.now()
+        await append_operation_log(
+            self.db,
+            operator=normalized_teacher,
+            action="course_resources.delete",
+            target=normalized_course_id,
+            detail=f"resource_id={resource_id}, filename={row.filename}",
+        )
+        await self._commit()
+        return {"message": "课程资料已删除", "id": resource_id}
+
+    async def preview_course_resource_file(self, course_id: str, resource_id: str, teacher_username: str):
+        course, _, _ = await self._ensure_owned_course(course_id, teacher_username)
+        normalized_course_id = normalize_text(course.id)
+        row = await self._get_course_resource_or_404(normalized_course_id, resource_id)
+        if self._resource_preview_mode(row.file_type) != "pdf":
+            raise HTTPException(status_code=400, detail="该文件类型不支持二进制在线预览")
+        return FileResponse(
+            path=row.file_path,
+            filename="document.pdf",
+            media_type="application/pdf",
+            content_disposition_type="inline",
+        )
+
+    async def download_course_resource_file(self, course_id: str, resource_id: str, teacher_username: str):
+        course, _, _ = await self._ensure_owned_course(course_id, teacher_username)
+        normalized_course_id = normalize_text(course.id)
+        row = await self._get_course_resource_or_404(normalized_course_id, resource_id)
+        media_type = row.content_type or mimetypes.guess_type(row.filename)[0] or "application/octet-stream"
+        return FileResponse(
+            path=row.file_path,
+            filename=row.filename,
+            media_type=media_type,
+            content_disposition_type="attachment",
+        )
 
     async def get_all_student_progress(self, teacher_username: str):
         normalized_teacher, role = await self._ensure_teacher(teacher_username)

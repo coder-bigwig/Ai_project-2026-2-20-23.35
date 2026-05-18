@@ -378,6 +378,7 @@ class ResourceFile(BaseModel):
     size: int
     created_at: datetime
     created_by: str
+    course_id: Optional[str] = None
 
 
 class ResourceQuotaUpdateRequest(BaseModel):
@@ -1436,6 +1437,7 @@ def _save_resource_registry():
                     content_type=_normalize_text(item.get("content_type")),
                     size=int(item.get("size") or 0),
                     created_by=_normalize_text(item.get("created_by")),
+                    course_id=_normalize_text(item.get("course_id")) or None,
                     created_at=_parse_iso_datetime(item.get("created_at")),
                     updated_at=datetime.now(),
                 )
@@ -1868,6 +1870,7 @@ def _resource_to_payload(record: ResourceFile, route_prefix: str = "/api/admin/r
         "size": record.size,
         "created_at": record.created_at,
         "created_by": record.created_by,
+        "course_id": record.course_id,
         "preview_mode": preview_mode,
         "previewable": preview_mode != "unsupported",
         "preview_url": f"{normalized_prefix}/{record.id}/preview",

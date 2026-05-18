@@ -22,6 +22,7 @@ from ..config import (
 )
 from ..repositories import (
     AuthUserRepository,
+    CourseRepository,
     OperationLogRepository,
     PasswordHashRepository,
     ResourceRepository,
@@ -109,9 +110,10 @@ class AdminService:
             return "docx"
         return "unsupported"
 
-    def _resource_payload(self, row, route_prefix: str = "/api/admin/resources") -> dict:
+    def _resource_payload(self, row, route_prefix: str = "/api/admin/resources", course=None) -> dict:
         normalized_prefix = route_prefix.rstrip("/")
         preview_mode = self._resource_preview_mode(row.file_type)
+        course_id = getattr(row, "course_id", None)
         return {
             "id": row.id,
             "filename": row.filename,
@@ -120,11 +122,21 @@ class AdminService:
             "size": row.size,
             "created_at": row.created_at,
             "created_by": row.created_by,
+            "course_id": course_id,
+            "course_name": getattr(course, "name", "") if course_id and course else "",
+            "course_created_by": getattr(course, "created_by", "") if course_id and course else "",
             "preview_mode": preview_mode,
             "previewable": preview_mode != "unsupported",
             "preview_url": f"{normalized_prefix}/{row.id}/preview",
             "download_url": f"{normalized_prefix}/{row.id}/download",
         }
+
+    async def _course_map_for_resources(self, rows) -> dict[str, object]:
+        course_ids = {normalize_text(getattr(row, "course_id", "")) for row in rows if normalize_text(getattr(row, "course_id", ""))}
+        if not course_ids:
+            return {}
+        course_rows = await CourseRepository(self.db).list_all()
+        return {item.id: item for item in course_rows if item.id in course_ids}
 
     @staticmethod
     def _operation_log_to_dict(record) -> dict:
@@ -1197,40 +1209,64 @@ class AdminService:
                 "created_at": datetime.now(),
                 "updated_at": datetime.now(),
                 "created_by": normalized_teacher,
+                "course_id": None,
             }
         )
         await self._commit()
         return self._resource_payload(row)
 
-    async def list_resource_files(self, teacher_username: str, name: Optional[str] = None, file_type: Optional[str] = None):
-        await self._ensure_teacher(teacher_username)
+    async def list_resource_files(
+        self,
+        teacher_username: str,
+        name: Optional[str] = None,
+        file_type: Optional[str] = None,
+        creator: Optional[str] = None,
+        course: Optional[str] = None,
+    ):
+        _, role = await self._ensure_teacher(teacher_username)
         normalized_name = normalize_text(name).lower()
         normalized_type = normalize_text(file_type).lower().lstrip(".")
+        normalized_creator = normalize_text(creator).lower()
+        normalized_course = normalize_text(course).lower()
 
         items = []
-        for row in await ResourceRepository(self.db).list_all():
+        rows = await ResourceRepository(self.db).list_all() if role == "admin" else await ResourceRepository(self.db).list_platform()
+        course_map = await self._course_map_for_resources(rows)
+        for row in rows:
+            course_row = course_map.get(normalize_text(getattr(row, "course_id", "")))
             if normalized_name and normalized_name not in normalize_text(row.filename).lower():
                 continue
             if normalized_type and normalize_text(row.file_type).lower().lstrip(".") != normalized_type:
                 continue
+            if normalized_creator and normalized_creator not in normalize_text(row.created_by).lower():
+                continue
+            if normalized_course:
+                course_id = normalize_text(getattr(row, "course_id", "")).lower()
+                course_name = normalize_text(getattr(course_row, "name", "")).lower() if course_row else ""
+                if normalized_course not in course_id and normalized_course not in course_name:
+                    continue
             if not os.path.exists(row.file_path):
                 continue
             items.append(row)
         items.sort(key=lambda item: item.created_at or datetime.min, reverse=True)
-        payload_items = [self._resource_payload(item) for item in items]
+        payload_items = [
+            self._resource_payload(item, course=course_map.get(normalize_text(getattr(item, "course_id", ""))))
+            for item in items
+        ]
         return {"total": len(payload_items), "items": payload_items}
 
     async def get_resource_file_detail(self, resource_id: str, teacher_username: str):
-        await self._ensure_teacher(teacher_username)
+        _, role = await self._ensure_teacher(teacher_username)
         row = await ResourceRepository(self.db).get(resource_id)
-        if not row:
+        if not row or (role != "admin" and getattr(row, "course_id", None)):
             raise HTTPException(status_code=404, detail="资源文件不存在")
         if not os.path.exists(row.file_path):
             await ResourceRepository(self.db).delete(resource_id)
             await self._commit()
             raise HTTPException(status_code=404, detail="资源文件不存在")
 
-        payload = self._resource_payload(row)
+        course = await CourseRepository(self.db).get(normalize_text(getattr(row, "course_id", ""))) if getattr(row, "course_id", None) else None
+        payload = self._resource_payload(row, course=course)
         preview_mode = payload["preview_mode"]
         if preview_mode in {"markdown", "text"}:
             payload["preview_text"] = self.main._read_text_preview(row.file_path)
@@ -1248,9 +1284,9 @@ class AdminService:
         return payload
 
     async def delete_resource_file(self, resource_id: str, teacher_username: str):
-        await self._ensure_teacher(teacher_username)
+        _, role = await self._ensure_teacher(teacher_username)
         row = await ResourceRepository(self.db).get(resource_id)
-        if not row:
+        if not row or (role != "admin" and getattr(row, "course_id", None)):
             raise HTTPException(status_code=404, detail="资源文件不存在")
         if os.path.exists(row.file_path):
             try:
@@ -1262,9 +1298,9 @@ class AdminService:
         return {"message": "资源文件已删除", "id": resource_id}
 
     async def preview_resource_file(self, resource_id: str, teacher_username: str):
-        await self._ensure_teacher(teacher_username)
+        _, role = await self._ensure_teacher(teacher_username)
         row = await ResourceRepository(self.db).get(resource_id)
-        if not row or not os.path.exists(row.file_path):
+        if not row or (role != "admin" and getattr(row, "course_id", None)) or not os.path.exists(row.file_path):
             raise HTTPException(status_code=404, detail="资源文件不存在")
         if self._resource_preview_mode(row.file_type) != "pdf":
             raise HTTPException(status_code=400, detail="该文件类型不支持二进制在线预览")
@@ -1276,9 +1312,9 @@ class AdminService:
         )
 
     async def download_resource_file(self, resource_id: str, teacher_username: str):
-        await self._ensure_teacher(teacher_username)
+        _, role = await self._ensure_teacher(teacher_username)
         row = await ResourceRepository(self.db).get(resource_id)
-        if not row or not os.path.exists(row.file_path):
+        if not row or (role != "admin" and getattr(row, "course_id", None)) or not os.path.exists(row.file_path):
             raise HTTPException(status_code=404, detail="资源文件不存在")
         media_type = row.content_type or mimetypes.guess_type(row.filename)[0] or "application/octet-stream"
         return FileResponse(

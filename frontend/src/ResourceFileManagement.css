@@ -85,6 +85,19 @@
     color: #3d4a59;
 }
 
+.resource-course-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 150px;
+}
+
+.resource-course-cell small,
+.resource-muted {
+    color: #7d8ea1;
+    font-size: 12px;
+}
+
 .resource-empty-row {
     text-align: center;
     color: #8a97a6;
@@ -154,6 +167,22 @@
     padding: 14px 18px;
     overflow: auto;
     min-height: 320px;
+}
+
+.resource-detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    margin-bottom: 12px;
+    color: #52677d;
+    font-size: 13px;
+}
+
+.resource-detail-meta span {
+    padding: 5px 10px;
+    border: 1px solid #d7e5f3;
+    border-radius: 6px;
+    background: #f7fbff;
 }
 
 .resource-preview-frame {

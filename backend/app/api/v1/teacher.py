@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db.session import get_db
@@ -93,6 +93,88 @@ async def toggle_course_publish(
     )
 
 
+async def upload_course_resource_file(
+    course_id: str,
+    teacher_username: str,
+    file: UploadFile = File(...),
+    db: Optional[AsyncSession] = Depends(get_db),
+):
+    service = build_teacher_service(main_module=main, db=db)
+    return await service.upload_course_resource_file(course_id=course_id, teacher_username=teacher_username, file=file)
+
+
+async def list_course_resource_files(
+    course_id: str,
+    teacher_username: str,
+    name: Optional[str] = None,
+    file_type: Optional[str] = None,
+    db: Optional[AsyncSession] = Depends(get_db),
+):
+    service = build_teacher_service(main_module=main, db=db)
+    return await service.list_course_resource_files(
+        course_id=course_id,
+        teacher_username=teacher_username,
+        name=name,
+        file_type=file_type,
+    )
+
+
+async def get_course_resource_file_detail(
+    course_id: str,
+    resource_id: str,
+    teacher_username: str,
+    db: Optional[AsyncSession] = Depends(get_db),
+):
+    service = build_teacher_service(main_module=main, db=db)
+    return await service.get_course_resource_file_detail(
+        course_id=course_id,
+        resource_id=resource_id,
+        teacher_username=teacher_username,
+    )
+
+
+async def delete_course_resource_file(
+    course_id: str,
+    resource_id: str,
+    teacher_username: str,
+    db: Optional[AsyncSession] = Depends(get_db),
+):
+    service = build_teacher_service(main_module=main, db=db)
+    return await service.delete_course_resource_file(
+        course_id=course_id,
+        resource_id=resource_id,
+        teacher_username=teacher_username,
+    )
+
+
+async def preview_course_resource_file(
+    course_id: str,
+    resource_id: str,
+    teacher_username: str,
+    db: Optional[AsyncSession] = Depends(get_db),
+):
+    service = build_teacher_service(main_module=main, db=db)
+    return await service.preview_course_resource_file(
+        course_id=course_id,
+        resource_id=resource_id,
+        teacher_username=teacher_username,
+    )
+
+
+async def download_course_resource_file(
+    course_id: str,
+    resource_id: str,
+    teacher_username: str,
+    db: Optional[AsyncSession] = Depends(get_db),
+):
+    service = build_teacher_service(main_module=main, db=db)
+    return await service.download_course_resource_file(
+        course_id=course_id,
+        resource_id=resource_id,
+        teacher_username=teacher_username,
+    )
+
+
 async def get_all_student_progress(
     teacher_username: str,
     db: Optional[AsyncSession] = Depends(get_db),
@@ -114,5 +196,12 @@ router.add_api_route("/api/teacher/courses", create_teacher_course, methods=["PO
 router.add_api_route("/api/teacher/courses/{course_id}", update_teacher_course, methods=["PATCH"])
 router.add_api_route("/api/teacher/courses/{course_id}", delete_teacher_course, methods=["DELETE"])
 router.add_api_route("/api/teacher/courses/{course_id}/publish", toggle_course_publish, methods=["PATCH"])
+router.add_api_route("/api/teacher/courses/{course_id}/resources", list_course_resource_files, methods=["GET"])
+router.add_api_route("/api/teacher/courses/{course_id}/resources", upload_course_resource_file, methods=["POST"])
+router.add_api_route("/api/teacher/courses/{course_id}/resources/upload", upload_course_resource_file, methods=["POST"])
+router.add_api_route("/api/teacher/courses/{course_id}/resources/{resource_id}", get_course_resource_file_detail, methods=["GET"])
+router.add_api_route("/api/teacher/courses/{course_id}/resources/{resource_id}", delete_course_resource_file, methods=["DELETE"])
+router.add_api_route("/api/teacher/courses/{course_id}/resources/{resource_id}/preview", preview_course_resource_file, methods=["GET"])
+router.add_api_route("/api/teacher/courses/{course_id}/resources/{resource_id}/download", download_course_resource_file, methods=["GET"])
 router.add_api_route("/api/teacher/progress", get_all_student_progress, methods=["GET"])
 router.add_api_route("/api/teacher/statistics", get_statistics, methods=["GET"])

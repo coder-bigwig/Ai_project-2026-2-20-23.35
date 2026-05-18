@@ -139,9 +139,17 @@ async def list_resource_files(
     teacher_username: str,
     name: Optional[str] = None,
     file_type: Optional[str] = None,
+    creator: Optional[str] = None,
+    course: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
-    return await _service(db).list_resource_files(teacher_username=teacher_username, name=name, file_type=file_type)
+    return await _service(db).list_resource_files(
+        teacher_username=teacher_username,
+        name=name,
+        file_type=file_type,
+        creator=creator,
+        course=course,
+    )
 
 
 async def get_resource_file_detail(resource_id: str, teacher_username: str, db: AsyncSession = Depends(get_db)):

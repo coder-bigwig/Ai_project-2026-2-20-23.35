@@ -481,6 +481,136 @@
   min-width: 140px;
 }
 
+.teacher-lab-resource-panel {
+  margin-top: 14px;
+  background: #fff;
+  border: 1px solid #dce7f2;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.teacher-lab-resource-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.teacher-lab-resource-upload {
+  border: none;
+  border-radius: 6px;
+  padding: 9px 16px;
+  background: #2f95da;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.teacher-lab-resource-upload:hover {
+  background: #2586c7;
+}
+
+.teacher-lab-resource-file-input {
+  display: none;
+}
+
+.teacher-lab-resource-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.teacher-lab-resource-search input,
+.teacher-lab-resource-search select {
+  height: 34px;
+  border: 1px solid #d8dee8;
+  border-radius: 6px;
+  padding: 0 10px;
+  font-size: 13px;
+  color: #4d5866;
+  background: #fff;
+  min-width: 120px;
+}
+
+.teacher-lab-resource-search-btn {
+  height: 34px;
+  border: none;
+  border-radius: 6px;
+  padding: 0 18px;
+  background: #2f95da;
+  color: #fff;
+  cursor: pointer;
+}
+
+.teacher-lab-resource-count {
+  color: #2f95da;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.teacher-lab-resource-table-wrap {
+  overflow-x: auto;
+}
+
+.teacher-lab-resource-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.teacher-lab-resource-table th {
+  background: #e3f0fa;
+  color: #4d5866;
+  font-weight: 600;
+  text-align: left;
+  padding: 12px;
+  border-bottom: 1px solid #d9e7f3;
+}
+
+.teacher-lab-resource-table td {
+  padding: 14px 12px;
+  border-bottom: 1px solid #edf1f5;
+  color: #3d4a59;
+}
+
+.teacher-lab-resource-empty {
+  text-align: center;
+  color: #8a97a6;
+  padding: 28px 0;
+}
+
+.teacher-lab-resource-pending {
+  color: #7d8ea1;
+  font-size: 13px;
+}
+
+.teacher-lab-resource-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.teacher-lab-resource-actions button {
+  border: none;
+  background: transparent;
+  color: #1f8fd6;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.teacher-lab-resource-actions button.danger {
+  color: #d64545;
+}
+
+.teacher-lab-resource-upload:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
 .teacher-lab-experiment-list {
   margin-top: 10px;
   border-top: 1px solid #dce7f2;

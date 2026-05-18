@@ -27,6 +27,8 @@ const TEXT = {
     empty: '\u5f53\u524d\u6682\u65e0\u53ef\u7528\u8bfe\u7a0b',
     chooseCourse: '\u8fdb\u5165\u8bfe\u7a0b',
     backToCourseLibrary: '\u8fd4\u56de\u8bfe\u7a0b\u5e93',
+    courseResources: '\u8bfe\u7a0b\u8d44\u6599',
+    backToExperimentList: '\u8fd4\u56de\u5b9e\u9a8c\u5217\u8868',
     courseCountPrefix: '\u5b9e\u9a8c\u6570\uff1a',
     courseUntitled: '\u672a\u547d\u540d\u8bfe\u7a0b',
     inProgressCountPrefix: '\u8fdb\u884c\u4e2d\uff1a',
@@ -52,6 +54,7 @@ const TEXT = {
     resourceTypePlaceholder: '\u8bf7\u9009\u62e9\u7c7b\u578b',
     resourceSearch: '\u641c\u7d22',
     resourceTotalPrefix: '\u5e73\u53f0\u8d44\u6e90\u6587\u4ef6\u5171',
+    courseResourceTotalPrefix: '\u8bfe\u7a0b\u8d44\u6599\u6587\u4ef6\u5171',
     resourceTotalSuffix: '\u4e2a',
     resourceLoading: '\u6b63\u5728\u52a0\u8f7d\u8d44\u6e90\u5217\u8868...',
     resourceEmpty: '\u6682\u65e0\u53ef\u7528\u8d44\u6e90',
@@ -186,6 +189,7 @@ function StudentCourseList({ username, onLogout }) {
     const [selectedCourseKey, setSelectedCourseKey] = useState(
         () => sessionStorage.getItem(SELECTED_COURSE_CACHE_KEY) || ''
     );
+    const [courseDetailView, setCourseDetailView] = useState('experiments');
     const [profile, setProfile] = useState(() => ({
         real_name: localStorage.getItem('real_name') || '',
         class_name: localStorage.getItem('class_name') || '',
@@ -266,6 +270,7 @@ function StudentCourseList({ username, onLogout }) {
     );
 
     const selectedCourseExperiments = selectedCourse?.experiments || [];
+    const isCourseResourceView = activeModule === 'courses' && selectedCourse && courseDetailView === 'resources';
 
     useEffect(() => {
         if (selectedCourseKey) {
@@ -292,10 +297,12 @@ function StudentCourseList({ username, onLogout }) {
 
     useEffect(() => {
         if (!selectedCourseKey) {
+            setCourseDetailView('experiments');
             return;
         }
         if (!groupedCourses.some((item) => item.key === selectedCourseKey)) {
             setSelectedCourseKey('');
+            setCourseDetailView('experiments');
             sessionStorage.removeItem(SELECTED_COURSE_CACHE_KEY);
         }
     }, [groupedCourses, selectedCourseKey]);
@@ -420,6 +427,16 @@ function StudentCourseList({ username, onLogout }) {
         setProfile((prev) => ({ ...prev, ...nextProfile }));
     }, []);
 
+    const openCourse = (courseKey) => {
+        setSelectedCourseKey(courseKey);
+        setCourseDetailView('experiments');
+    };
+
+    const backToCourseLibrary = () => {
+        setSelectedCourseKey('');
+        setCourseDetailView('experiments');
+    };
+
     return (
         <div className="lab-page-shell">
             <header className="lab-topbar">
@@ -485,7 +502,15 @@ function StudentCourseList({ username, onLogout }) {
 
                 <section className="lab-content-panel">
                     <div className="lab-breadcrumb">
-                        {moduleLabel} / <strong>{breadcrumbLabel}</strong>
+                        {isCourseResourceView ? (
+                            <>
+                                {TEXT.moduleLabel} / {selectedCourse.courseName} / <strong>{TEXT.courseResources}</strong>
+                            </>
+                        ) : (
+                            <>
+                                {moduleLabel} / <strong>{breadcrumbLabel}</strong>
+                            </>
+                        )}
                     </div>
                     {activeModule === 'courses' ? (
                         <>
@@ -531,7 +556,7 @@ function StudentCourseList({ username, onLogout }) {
                                                 <button
                                                     type="button"
                                                     className="lab-open-btn"
-                                                    onClick={() => setSelectedCourseKey(courseGroup.key)}
+                                                    onClick={() => openCourse(courseGroup.key)}
                                                 >
                                                     {TEXT.chooseCourse}
                                                 </button>
@@ -541,16 +566,27 @@ function StudentCourseList({ username, onLogout }) {
                                 </div>
                             ) : (
                                 <>
-                                    <div className="lab-course-header">
-                                        <button type="button" className="lab-back-btn" onClick={() => setSelectedCourseKey('')}>
-                                            {TEXT.backToCourseLibrary}
-                                        </button>
-                                        <span className="lab-course-summary">
-                                            {`${selectedCourse.courseName} · ${TEXT.courseCountPrefix}${selectedCourseExperiments.length}`}
-                                        </span>
-                                    </div>
+                                    {courseDetailView === 'experiments' ? (
+                                        <div className="lab-course-header">
+                                            <button type="button" className="lab-back-btn" onClick={backToCourseLibrary}>
+                                                {TEXT.backToCourseLibrary}
+                                            </button>
+                                            <span className="lab-course-summary">
+                                                {`${selectedCourse.courseName} · ${TEXT.courseCountPrefix}${selectedCourseExperiments.length}`}
+                                            </span>
+                                            <button type="button" className="lab-back-btn" onClick={() => setCourseDetailView('resources')}>
+                                                {TEXT.courseResources}
+                                            </button>
+                                        </div>
+                                    ) : null}
 
-                                    {selectedCourseExperiments.length === 0 ? (
+                                    {courseDetailView === 'resources' ? (
+                                        <CourseResourcePanel
+                                            username={username}
+                                            course={selectedCourse}
+                                            onBack={() => setCourseDetailView('experiments')}
+                                        />
+                                    ) : selectedCourseExperiments.length === 0 ? (
                                         <div className="lab-empty">{TEXT.empty}</div>
                                     ) : (
                                         <div className="lab-card-grid">
@@ -681,6 +717,191 @@ function AttachmentPanel({ courseId }) {
                 </ul>
             ) : null}
         </div>
+    );
+}
+
+function CourseResourcePanel({ username, course, onBack }) {
+    const [searchName, setSearchName] = useState('');
+    const [searchType, setSearchType] = useState('');
+    const [resources, setResources] = useState([]);
+    const [resourceLoading, setResourceLoading] = useState(false);
+    const [totalCount, setTotalCount] = useState(0);
+    const [detailVisible, setDetailVisible] = useState(false);
+    const [detailLoading, setDetailLoading] = useState(false);
+    const [detailData, setDetailData] = useState(null);
+    const courseId = String(course?.courseId || '').trim();
+
+    const loadResources = useCallback(async ({ name = '', fileType = '' } = {}) => {
+        if (!courseId || !username) {
+            setResources([]);
+            setTotalCount(0);
+            return;
+        }
+        setResourceLoading(true);
+        try {
+            const response = await axios.get(`${API_BASE_URL}/api/student/courses/${courseId}/resources`, {
+                params: {
+                    student_id: username,
+                    name: name || undefined,
+                    file_type: fileType || undefined
+                }
+            });
+            const payload = response.data || {};
+            setResources(Array.isArray(payload.items) ? payload.items : []);
+            setTotalCount(Number.isFinite(payload.total) ? payload.total : 0);
+        } catch (error) {
+            console.error('Failed to load course resources:', error);
+            alert(error.response?.data?.detail || TEXT.resourceLoadError);
+            setResources([]);
+            setTotalCount(0);
+        } finally {
+            setResourceLoading(false);
+        }
+    }, [courseId, username]);
+
+    useEffect(() => {
+        loadResources({ name: '', fileType: '' });
+    }, [loadResources]);
+
+    const openResourceDetail = async (resourceId) => {
+        setDetailVisible(true);
+        setDetailLoading(true);
+        setDetailData(null);
+        try {
+            const response = await axios.get(`${API_BASE_URL}/api/student/courses/${courseId}/resources/${resourceId}`, {
+                params: { student_id: username }
+            });
+            setDetailData(response.data || null);
+        } catch (error) {
+            console.error('Failed to load course resource detail:', error);
+            alert(error.response?.data?.detail || TEXT.resourceDetailError);
+            setDetailVisible(false);
+        } finally {
+            setDetailLoading(false);
+        }
+    };
+
+    const openDownload = (resource) => {
+        const downloadUrl = resource.download_url || `/api/student/courses/${courseId}/resources/${resource.id}/download`;
+        window.open(`${API_BASE_URL}${downloadUrl}?student_id=${encodeURIComponent(username)}`, '_blank');
+    };
+
+    return (
+        <>
+            <div className="lab-course-header">
+                <button type="button" className="lab-back-btn" onClick={onBack}>
+                    {TEXT.backToExperimentList}
+                </button>
+            </div>
+
+            <div className="lab-resource-panel">
+                <div className="lab-resource-toolbar">
+                    <div className="lab-resource-search">
+                        <input
+                            type="text"
+                            placeholder={TEXT.resourceNamePlaceholder}
+                            value={searchName}
+                            onChange={(event) => setSearchName(event.target.value)}
+                        />
+                        <select value={searchType} onChange={(event) => setSearchType(event.target.value)}>
+                            {RESOURCE_TYPE_OPTIONS.map((item) => (
+                                <option key={item.value || 'all'} value={item.value}>
+                                    {item.label}
+                                </option>
+                            ))}
+                        </select>
+                        <button type="button" onClick={() => loadResources({ name: searchName, fileType: searchType })}>
+                            {TEXT.resourceSearch}
+                        </button>
+                    </div>
+                    <span className="lab-resource-total">{`${TEXT.courseResourceTotalPrefix} ${totalCount} ${TEXT.resourceTotalSuffix}`}</span>
+                </div>
+
+                <div className="lab-resource-table-wrap">
+                    <table className="lab-resource-table">
+                        <thead>
+                            <tr>
+                                <th>{TEXT.resourceFileName}</th>
+                                <th>{TEXT.resourceFileType}</th>
+                                <th>{TEXT.resourceCreatedAt}</th>
+                                <th>{TEXT.operation}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {resourceLoading ? (
+                            <tr>
+                                <td colSpan="4" className="lab-resource-empty-row">{TEXT.resourceLoading}</td>
+                            </tr>
+                            ) : resources.length === 0 ? (
+                            <tr>
+                                <td colSpan="4" className="lab-resource-empty-row">{TEXT.resourceEmpty}</td>
+                            </tr>
+                            ) : (
+                                resources.map((resource) => (
+                                    <tr key={resource.id}>
+                                        <td>{resource.filename}</td>
+                                        <td>{resource.file_type || '-'}</td>
+                                        <td>{formatDateTime(resource.created_at)}</td>
+                                        <td>
+                                            <button
+                                                type="button"
+                                                className="lab-resource-link detail"
+                                                onClick={() => openResourceDetail(resource.id)}
+                                            >
+                                                {TEXT.detail}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="lab-resource-link download"
+                                                onClick={() => openDownload(resource)}
+                                            >
+                                                {TEXT.download}
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {detailVisible ? (
+                <div className="lab-resource-modal-mask" onClick={() => setDetailVisible(false)}>
+                    <div className="lab-resource-modal" onClick={(event) => event.stopPropagation()}>
+                        <div className="lab-resource-modal-header">
+                            <h3>{detailData?.filename || TEXT.detail}</h3>
+                            <button type="button" onClick={() => setDetailVisible(false)}>{TEXT.close}</button>
+                        </div>
+                        <div className="lab-resource-modal-body">
+                            {detailLoading ? (
+                                <div className="lab-resource-preview-empty">{TEXT.resourceLoading}</div>
+                            ) : (
+                                <ResourcePreviewContent
+                                    detailData={detailData}
+                                    accessQueryKey="student_id"
+                                    accessQueryValue={username}
+                                    loadingText={TEXT.resourceLoading}
+                                    emptyText={TEXT.noPreviewContent}
+                                    unsupportedText={TEXT.unsupportedPreview}
+                                />
+                            )}
+                        </div>
+                        {detailData ? (
+                            <div className="lab-resource-modal-footer">
+                                <button
+                                    type="button"
+                                    className="lab-resource-download-btn"
+                                    onClick={() => openDownload(detailData)}
+                                >
+                                    {TEXT.download}
+                                </button>
+                            </div>
+                        ) : null}
+                    </div>
+                </div>
+            ) : null}
+        </>
     );
 }
 

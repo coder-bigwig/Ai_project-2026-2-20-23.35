@@ -23,19 +23,24 @@ function formatDate(value) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
 }
 
-function ResourceFileManagement({ username }) {
+function ResourceFileManagement({ username, userRole }) {
+    const normalizedRole = String(userRole || '').trim().toLowerCase();
+    const normalizedUsername = String(username || '').trim().toLowerCase();
+    const isAdmin = normalizedRole === 'admin' || normalizedRole.includes('管理员') || normalizedUsername === 'admin' || normalizedUsername === 'fit_admin';
     const [resources, setResources] = useState([]);
     const [totalCount, setTotalCount] = useState(0);
     const [loading, setLoading] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [searchName, setSearchName] = useState('');
     const [searchType, setSearchType] = useState('');
+    const [searchCreator, setSearchCreator] = useState('');
+    const [searchCourse, setSearchCourse] = useState('');
     const [detailVisible, setDetailVisible] = useState(false);
     const [detailLoading, setDetailLoading] = useState(false);
     const [detailData, setDetailData] = useState(null);
     const fileInputRef = useRef(null);
 
-    const loadResources = useCallback(async ({ name = '', fileType = '' } = {}) => {
+    const loadResources = useCallback(async ({ name = '', fileType = '', creator = '', course = '' } = {}) => {
         setLoading(true);
         try {
             const response = await axios.get(`${API_BASE_URL}/api/admin/resources`, {
@@ -43,6 +48,8 @@ function ResourceFileManagement({ username }) {
                     teacher_username: username,
                     name: name || undefined,
                     file_type: fileType || undefined,
+                    creator: isAdmin ? (creator || undefined) : undefined,
+                    course: isAdmin ? (course || undefined) : undefined,
                 },
             });
             const payload = response.data || {};
@@ -56,11 +63,18 @@ function ResourceFileManagement({ username }) {
         } finally {
             setLoading(false);
         }
-    }, [username]);
+    }, [isAdmin, username]);
 
     useEffect(() => {
-        loadResources({ name: '', fileType: '' });
+        loadResources({ name: '', fileType: '', creator: '', course: '' });
     }, [loadResources]);
+
+    const currentFilters = () => ({
+        name: searchName,
+        fileType: searchType,
+        creator: searchCreator,
+        course: searchCourse,
+    });
 
     const openUpload = () => {
         fileInputRef.current?.click();
@@ -79,7 +93,7 @@ function ResourceFileManagement({ username }) {
                 params: { teacher_username: username },
                 headers: { 'Content-Type': 'multipart/form-data' },
             });
-            await loadResources({ name: searchName, fileType: searchType });
+            await loadResources(currentFilters());
             alert('资源文件上传成功');
         } catch (error) {
             console.error('Failed to upload resource:', error);
@@ -90,7 +104,7 @@ function ResourceFileManagement({ username }) {
     };
 
     const handleSearch = () => {
-        loadResources({ name: searchName, fileType: searchType });
+        loadResources(currentFilters());
     };
 
     const handleDelete = async (item) => {
@@ -103,7 +117,7 @@ function ResourceFileManagement({ username }) {
                 setDetailVisible(false);
                 setDetailData(null);
             }
-            await loadResources({ name: searchName, fileType: searchType });
+            await loadResources(currentFilters());
             alert('资源文件已删除');
         } catch (error) {
             console.error('Failed to delete resource:', error);
@@ -132,6 +146,20 @@ function ResourceFileManagement({ username }) {
     const closeDetail = () => {
         setDetailVisible(false);
         setDetailData(null);
+    };
+
+    const renderCourseCell = (item) => {
+        const courseName = String(item?.course_name || '').trim();
+        const courseId = String(item?.course_id || '').trim();
+        if (!courseName && !courseId) {
+            return <span className="resource-muted">平台资源</span>;
+        }
+        return (
+            <div className="resource-course-cell">
+                <span>{courseName || '未命名课程'}</span>
+                {courseId ? <small>{`ID: ${courseId.slice(0, 8)}`}</small> : null}
+            </div>
+        );
     };
 
     return (
@@ -164,10 +192,30 @@ function ResourceFileManagement({ username }) {
                             </option>
                         ))}
                     </select>
+                    {isAdmin ? (
+                        <>
+                            <input
+                                type="text"
+                                placeholder="按创建者搜索"
+                                value={searchCreator}
+                                onChange={(event) => setSearchCreator(event.target.value)}
+                            />
+                            <input
+                                type="text"
+                                placeholder="按课程名或ID搜索"
+                                value={searchCourse}
+                                onChange={(event) => setSearchCourse(event.target.value)}
+                            />
+                        </>
+                    ) : null}
                     <button className="resource-search-btn" onClick={handleSearch}>
                         搜索
                     </button>
-                    <span className="resource-count">云平台资源文件共 {totalCount} 个</span>
+                    <span className="resource-count">
+                        {isAdmin
+                            ? `资源文件共 ${totalCount} 个`
+                            : `云平台资源文件共 ${totalCount} 个`}
+                    </span>
                 </div>
             </div>
 
@@ -176,6 +224,8 @@ function ResourceFileManagement({ username }) {
                     <thead>
                         <tr>
                             <th>文件名</th>
+                            {isAdmin ? <th>创建者</th> : null}
+                            {isAdmin ? <th>所属课程</th> : null}
                             <th>类型</th>
                             <th>创建时间</th>
                             <th>操作</th>
@@ -184,16 +234,18 @@ function ResourceFileManagement({ username }) {
                     <tbody>
                         {loading ? (
                             <tr>
-                                <td colSpan="4" className="resource-empty-row">加载中...</td>
+                                <td colSpan={isAdmin ? 6 : 4} className="resource-empty-row">加载中...</td>
                             </tr>
                         ) : resources.length === 0 ? (
                             <tr>
-                                <td colSpan="4" className="resource-empty-row">暂无资源文件</td>
+                                <td colSpan={isAdmin ? 6 : 4} className="resource-empty-row">暂无资源文件</td>
                             </tr>
                         ) : (
                             resources.map((item) => (
                                 <tr key={item.id}>
                                     <td>{item.filename}</td>
+                                    {isAdmin ? <td>{item.created_by || '-'}</td> : null}
+                                    {isAdmin ? <td>{renderCourseCell(item)}</td> : null}
                                     <td>{item.file_type || '-'}</td>
                                     <td>{formatDate(item.created_at)}</td>
                                     <td>
@@ -222,14 +274,24 @@ function ResourceFileManagement({ username }) {
                             {detailLoading ? (
                                 <div className="resource-preview-empty">详情加载中...</div>
                             ) : (
-                                <ResourcePreviewContent
-                                    detailData={detailData}
-                                    accessQueryKey="teacher_username"
-                                    accessQueryValue={username}
-                                    loadingText="正在加载预览..."
-                                    emptyText="暂无可预览内容"
-                                    unsupportedText="当前文件类型不支持在线预览，请点击下载后查看。"
-                                />
+                                <>
+                                    {isAdmin && detailData ? (
+                                        <div className="resource-detail-meta">
+                                            <span>{`创建者：${detailData.created_by || '-'}`}</span>
+                                            <span>
+                                                {`所属课程：${detailData.course_name || '平台资源'}${detailData.course_id ? ` (ID: ${detailData.course_id})` : ''}`}
+                                            </span>
+                                        </div>
+                                    ) : null}
+                                    <ResourcePreviewContent
+                                        detailData={detailData}
+                                        accessQueryKey="teacher_username"
+                                        accessQueryValue={username}
+                                        loadingText="正在加载预览..."
+                                        emptyText="暂无可预览内容"
+                                        unsupportedText="当前文件类型不支持在线预览，请点击下载后查看。"
+                                    />
+                                </>
                             )}
                         </div>
                         {!detailLoading && detailData && (

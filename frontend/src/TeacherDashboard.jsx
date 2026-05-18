@@ -1,10 +1,11 @@
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import TeacherReview from './TeacherReview';
 import TeacherUserManagement from './TeacherUserManagement';
 import ResourceFileManagement from './ResourceFileManagement';
+import ResourcePreviewContent from './ResourcePreviewContent';
 import TeacherAIModule from './TeacherAIModule';
 import AdminStatsCenter from './AdminStatsCenter';
 import AdminResourceControl from './AdminResourceControl';
@@ -638,6 +639,7 @@ function TeacherDashboard({ username, userRole, onLogout }) {
               </div>
 
               <CoursePanel
+                username={username}
                 courses={courses}
                 loading={loadingCourses}
                 onCreateExperiment={(course) => {
@@ -679,7 +681,7 @@ function TeacherDashboard({ username, userRole, onLogout }) {
 
           {activeTab === 'resources' ? (
             <div className="teacher-lab-section">
-              <ResourceFileManagement username={username} />
+              <ResourceFileManagement username={username} userRole={userRole} />
             </div>
           ) : null}
 
@@ -741,6 +743,7 @@ function TeacherDashboard({ username, userRole, onLogout }) {
 }
 
 function CoursePanel({
+  username,
   courses,
   loading,
   onCreateExperiment,
@@ -759,6 +762,7 @@ function CoursePanel({
     }
     return cachedCourseId;
   });
+  const [courseDetailView, setCourseDetailView] = useState('experiments');
 
   const selectedCourse = useMemo(() => {
     const needle = String(selectedCourseId || '').trim();
@@ -767,9 +771,15 @@ function CoursePanel({
   }, [courses, selectedCourseId]);
 
   useEffect(() => {
-    if (!selectedCourseId) return;
+    if (!selectedCourseId) {
+      setCourseDetailView('experiments');
+      return;
+    }
     const keep = (courses || []).some((item) => String(item?.id || '').trim() === String(selectedCourseId).trim());
-    if (!keep) setSelectedCourseId('');
+    if (!keep) {
+      setSelectedCourseId('');
+      setCourseDetailView('experiments');
+    }
   }, [courses, selectedCourseId]);
 
   const buildCourseViewModel = (course) => {
@@ -902,7 +912,16 @@ function CoursePanel({
                 <div className="teacher-lab-meta-row">{`\u6700\u8fd1\u66f4\u65b0\u65f6\u95f4\uff1a${formatDate(course.updated_at || course.created_at)}`}</div>
 
                 <div className="teacher-lab-card-actions">
-                  <button type="button" className="teacher-lab-btn primary" onClick={() => setSelectedCourseId(course.id)}>{'\u67e5\u770b\u5b9e\u9a8c'}</button>
+                  <button
+                    type="button"
+                    className="teacher-lab-btn primary"
+                    onClick={() => {
+                      setSelectedCourseId(course.id);
+                      setCourseDetailView('experiments');
+                    }}
+                  >
+                    {'\u67e5\u770b\u5b9e\u9a8c'}
+                  </button>
                   <button type="button" className="teacher-lab-btn" onClick={() => onCreateExperiment(course)}>{'+ \u6dfb\u52a0\u5b9e\u9a8c'}</button>
                   <button type="button" className="teacher-lab-btn" onClick={() => onEditCourse(course)}>{'\u7f16\u8f91\u8bfe\u7a0b'}</button>
                 </div>
@@ -925,28 +944,299 @@ function CoursePanel({
 
   return (
     <div className="teacher-lab-course-section">
-      <div className="teacher-lab-course-head">
-        <button type="button" className="teacher-lab-course-back" onClick={() => setSelectedCourseId('')}>
-          {'\u8fd4\u56de\u8bfe\u7a0b\u5e93'}
-        </button>
-        <span className="teacher-lab-course-pill">
-          {`${selectedCourse.name || '\u672a\u547d\u540d\u8bfe\u7a0b'} \u00b7 \u5b9e\u9a8c\u6570\uff1a${totalExperiments}`}
-        </span>
-      </div>
+      {courseDetailView === 'experiments' ? (
+        <>
+          <div className="teacher-lab-course-head">
+            <button type="button" className="teacher-lab-course-back" onClick={() => setSelectedCourseId('')}>
+              {'\u8fd4\u56de\u8bfe\u7a0b\u5e93'}
+            </button>
+            <span className="teacher-lab-course-pill">
+              {`${selectedCourse.name || '\u672a\u547d\u540d\u8bfe\u7a0b'} \u00b7 \u5b9e\u9a8c\u6570\uff1a${totalExperiments}`}
+            </span>
+            <button type="button" className="teacher-lab-course-back" onClick={() => setCourseDetailView('resources')}>
+              {'\u8bfe\u7a0b\u8d44\u6599'}
+            </button>
+          </div>
 
-      <div className="teacher-lab-course-tools">
-        <button type="button" className="teacher-lab-btn primary" onClick={() => onCreateExperiment(selectedCourse)}>{'+ \u6dfb\u52a0\u5b9e\u9a8c'}</button>
-        <button type="button" className="teacher-lab-btn" onClick={() => onEditCourse(selectedCourse)}>{'\u7f16\u8f91\u8bfe\u7a0b'}</button>
-        <button type="button" className="teacher-lab-btn highlight" onClick={() => onPublishCourse(selectedCourse)}>
-          {allPublished ? '\u53d6\u6d88\u53d1\u5e03\u8bfe\u7a0b' : `\u53d1\u5e03\u8bfe\u7a0b(${publishedCount}/${totalExperiments})`}
-        </button>
-        <button type="button" className="teacher-lab-btn danger" onClick={() => onDeleteCourse(selectedCourse)}>{'\u5220\u9664\u8bfe\u7a0b'}</button>
-      </div>
+          <div className="teacher-lab-course-tools">
+            <button type="button" className="teacher-lab-btn primary" onClick={() => onCreateExperiment(selectedCourse)}>{'+ \u6dfb\u52a0\u5b9e\u9a8c'}</button>
+            <button type="button" className="teacher-lab-btn" onClick={() => onEditCourse(selectedCourse)}>{'\u7f16\u8f91\u8bfe\u7a0b'}</button>
+            <button type="button" className="teacher-lab-btn highlight" onClick={() => onPublishCourse(selectedCourse)}>
+              {allPublished ? '\u53d6\u6d88\u53d1\u5e03\u8bfe\u7a0b' : `\u53d1\u5e03\u8bfe\u7a0b(${publishedCount}/${totalExperiments})`}
+            </button>
+            <button type="button" className="teacher-lab-btn danger" onClick={() => onDeleteCourse(selectedCourse)}>{'\u5220\u9664\u8bfe\u7a0b'}</button>
+          </div>
 
-      <div className="teacher-lab-card-grid teacher-lab-experiment-grid">
-        {renderExperimentList(selectedCourse)}
-      </div>
+          <div className="teacher-lab-card-grid teacher-lab-experiment-grid">
+            {renderExperimentList(selectedCourse)}
+          </div>
+        </>
+      ) : (
+        <CourseResourcePanel
+          username={username}
+          course={selectedCourse}
+          onBack={() => setCourseDetailView('experiments')}
+        />
+      )}
     </div>
+  );
+}
+
+function CourseResourcePanel({ username, course, onBack }) {
+  const fileInputRef = useRef(null);
+  const [resources, setResources] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [searchName, setSearchName] = useState('');
+  const [searchType, setSearchType] = useState('');
+  const [detailVisible, setDetailVisible] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailData, setDetailData] = useState(null);
+  const courseId = String(course?.id || '').trim();
+
+  const loadResources = useCallback(async ({ name = '', fileType = '' } = {}) => {
+    if (!courseId || !username) {
+      setResources([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/teacher/courses/${courseId}/resources`, {
+        params: {
+          teacher_username: username,
+          name: name || undefined,
+          file_type: fileType || undefined,
+        },
+      });
+      const payload = response.data || {};
+      setResources(Array.isArray(payload.items) ? payload.items : []);
+    } catch (error) {
+      console.error('load course resources failed', error);
+      alert(error.response?.data?.detail || '课程资料加载失败');
+      setResources([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [courseId, username]);
+
+  useEffect(() => {
+    loadResources({ name: '', fileType: '' });
+  }, [loadResources]);
+
+  const filteredResources = useMemo(() => {
+    const nameNeedle = String(searchName || '').trim().toLowerCase();
+    const typeNeedle = String(searchType || '').trim().toLowerCase();
+    return resources.filter((item) => {
+      const nameMatched = !nameNeedle || String(item.filename || '').toLowerCase().includes(nameNeedle);
+      const typeMatched = !typeNeedle || String(item.file_type || '').toLowerCase() === typeNeedle;
+      return nameMatched && typeMatched;
+    });
+  }, [resources, searchName, searchType]);
+
+  const handleUploadChange = async (event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (files.length === 0) return;
+
+    setUploading(true);
+    try {
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('file', file);
+        await axios.post(`${API_BASE_URL}/api/teacher/courses/${courseId}/resources/upload`, formData, {
+          params: { teacher_username: username },
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+      }
+      await loadResources({ name: searchName, fileType: searchType });
+    } catch (error) {
+      console.error('upload course resource failed', error);
+      alert(error.response?.data?.detail || '课程资料上传失败');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleViewDetail = async (item) => {
+    setDetailVisible(true);
+    setDetailLoading(true);
+    setDetailData(null);
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/teacher/courses/${courseId}/resources/${item.id}`, {
+        params: { teacher_username: username },
+      });
+      setDetailData(response.data || null);
+    } catch (error) {
+      console.error('load course resource detail failed', error);
+      alert(error.response?.data?.detail || '课程资料详情加载失败');
+      setDetailVisible(false);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const handleDelete = async (item) => {
+    if (!window.confirm(`确定删除资料文件 "${item.filename}" 吗？`)) return;
+    try {
+      await axios.delete(`${API_BASE_URL}/api/teacher/courses/${courseId}/resources/${item.id}`, {
+        params: { teacher_username: username },
+      });
+      if (detailData?.id === item.id) {
+        setDetailVisible(false);
+        setDetailData(null);
+      }
+      await loadResources({ name: searchName, fileType: searchType });
+    } catch (error) {
+      console.error('delete course resource failed', error);
+      alert(error.response?.data?.detail || '课程资料删除失败');
+    }
+  };
+
+  const handleDownload = (item) => {
+    const downloadUrl = item.download_url || `/api/teacher/courses/${courseId}/resources/${item.id}/download`;
+    window.open(`${API_BASE_URL}${downloadUrl}?teacher_username=${encodeURIComponent(username)}`, '_blank');
+  };
+
+  const closeDetail = () => {
+    setDetailVisible(false);
+    setDetailData(null);
+  };
+
+  return (
+    <>
+      <div className="teacher-lab-course-head">
+        <button type="button" className="teacher-lab-course-back" onClick={onBack}>
+          {'\u8fd4\u56de\u5b9e\u9a8c\u5217\u8868'}
+        </button>
+      </div>
+
+      <div className="teacher-lab-resource-panel">
+        <div className="teacher-lab-resource-toolbar">
+          <button
+            type="button"
+            className="teacher-lab-resource-upload"
+            disabled={uploading}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {uploading ? '上传中...' : '\u4e0a\u4f20\u8d44\u6599\u6587\u4ef6'}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="teacher-lab-resource-file-input"
+            multiple
+            accept=".pdf,.doc,.docx,.md,.markdown,.txt,.csv,.json,.ppt,.pptx,.xls,.xlsx"
+            onChange={handleUploadChange}
+          />
+
+          <div className="teacher-lab-resource-search">
+            <input
+              type="text"
+              placeholder={'\u8bf7\u8f93\u5165\u540d\u79f0'}
+              value={searchName}
+              onChange={(event) => setSearchName(event.target.value)}
+            />
+            <select value={searchType} onChange={(event) => setSearchType(event.target.value)}>
+              <option value="">{'\u8bf7\u9009\u62e9\u7c7b\u578b'}</option>
+              <option value="pdf">pdf</option>
+              <option value="doc">doc</option>
+              <option value="docx">docx</option>
+              <option value="ppt">ppt</option>
+              <option value="pptx">pptx</option>
+              <option value="xls">xls</option>
+              <option value="xlsx">xlsx</option>
+              <option value="md">md</option>
+              <option value="txt">txt</option>
+            </select>
+            <button
+              type="button"
+              className="teacher-lab-resource-search-btn"
+              onClick={() => loadResources({ name: searchName, fileType: searchType })}
+            >
+              {'\u641c\u7d22'}
+            </button>
+            <span className="teacher-lab-resource-count">
+              {`\u8bfe\u7a0b\u8d44\u6599\u6587\u4ef6\u5171 ${filteredResources.length} \u4e2a`}
+            </span>
+          </div>
+        </div>
+
+        <div className="teacher-lab-resource-table-wrap">
+          <table className="teacher-lab-resource-table">
+            <thead>
+              <tr>
+                <th>{'\u6587\u4ef6\u540d'}</th>
+                <th>{'\u7c7b\u578b'}</th>
+                <th>{'\u521b\u5efa\u65f6\u95f4'}</th>
+                <th>{'\u64cd\u4f5c'}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan="4" className="teacher-lab-resource-empty">加载中...</td>
+                </tr>
+              ) : filteredResources.length === 0 ? (
+                <tr>
+                  <td colSpan="4" className="teacher-lab-resource-empty">{'\u6682\u65e0\u8d44\u6599\u6587\u4ef6'}</td>
+                </tr>
+              ) : (
+                filteredResources.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.filename}</td>
+                    <td>{item.file_type}</td>
+                    <td>{formatDateTime(item.created_at)}</td>
+                    <td>
+                      <div className="teacher-lab-resource-actions">
+                        <button type="button" onClick={() => handleViewDetail(item)}>详情</button>
+                        <button type="button" onClick={() => handleDownload(item)}>下载</button>
+                        <button type="button" className="danger" onClick={() => handleDelete(item)}>删除</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {detailVisible ? (
+        <div className="resource-modal-mask" onClick={closeDetail}>
+          <div className="resource-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="resource-modal-header">
+              <h3>{detailData?.filename || '课程资料详情'}</h3>
+              <button type="button" onClick={closeDetail}>关闭</button>
+            </div>
+            <div className="resource-modal-body">
+              {detailLoading ? (
+                <div className="resource-preview-empty">详情加载中...</div>
+              ) : (
+                <ResourcePreviewContent
+                  detailData={detailData}
+                  accessQueryKey="teacher_username"
+                  accessQueryValue={username}
+                  loadingText="正在加载预览..."
+                  emptyText="暂无可预览内容"
+                  unsupportedText="当前文件类型不支持在线预览，请下载后查看。"
+                />
+              )}
+            </div>
+            {!detailLoading && detailData ? (
+              <div className="resource-modal-footer">
+                <a
+                  href={`${API_BASE_URL}${detailData.download_url}?teacher_username=${encodeURIComponent(username)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  下载文件
+                </a>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 
