@@ -9,8 +9,9 @@ from threading import Lock
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 import httpx
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 try:
@@ -38,6 +39,13 @@ DEEPSEEK_MODEL = str(os.getenv("DEEPSEEK_MODEL", "deepseek-chat") or "").strip()
 TAVILY_API_KEY = str(os.getenv("TAVILY_API_KEY", "") or "").strip()
 CACHE_TTL = _read_int_env("CACHE_TTL", 3600, 60, 86400 * 7)
 MAX_HISTORY = _read_int_env("MAX_HISTORY", 10, 0, 50)
+OPENAI_PROXY_SYSTEM_PROMPT = str(
+    os.getenv(
+        "OPENAI_PROXY_SYSTEM_PROMPT",
+        "你是教学平台内置的 AI 助手，请遵守课堂学习场景要求，给出准确、可执行的回答。",
+    )
+    or ""
+).strip()
 
 
 def _chat_completions_url(base_url: str) -> str:
@@ -536,6 +544,116 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _openai_proxy_auth_header(request: Request) -> str:
+    incoming = str(request.headers.get("Authorization") or "").strip()
+    if incoming:
+        return incoming
+    if DEEPSEEK_API_KEY:
+        return f"Bearer {DEEPSEEK_API_KEY}"
+    return ""
+
+
+def _openai_proxy_payload(raw_payload: Dict[str, Any]) -> Dict[str, Any]:
+    payload = dict(raw_payload or {})
+    payload.pop("stream_options", None)
+    payload["model"] = str(payload.get("model") or DEEPSEEK_MODEL or "deepseek-chat").strip()
+
+    raw_messages = payload.get("messages")
+    messages = raw_messages if isinstance(raw_messages, list) else []
+    if OPENAI_PROXY_SYSTEM_PROMPT:
+        messages = [{"role": "system", "content": OPENAI_PROXY_SYSTEM_PROMPT}, *messages]
+    payload["messages"] = messages
+    return payload
+
+
+@app.get("/openai/v1/models")
+async def openai_proxy_models() -> Dict[str, Any]:
+    model_id = DEEPSEEK_MODEL or "deepseek-chat"
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": model_id,
+                "object": "model",
+                "created": 0,
+                "owned_by": "deeptutor-ai-assistant",
+            }
+        ],
+    }
+
+
+@app.post("/openai/v1/chat/completions")
+async def openai_proxy_chat_completions(request: Request):
+    try:
+        raw_payload = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="请求体必须是 JSON") from exc
+    if not isinstance(raw_payload, dict):
+        raise HTTPException(status_code=400, detail="请求体必须是 JSON 对象")
+
+    payload = _openai_proxy_payload(raw_payload)
+    headers = {"Content-Type": "application/json"}
+    auth_header = _openai_proxy_auth_header(request)
+    if auth_header:
+        headers["Authorization"] = auth_header
+
+    if payload.get("stream") is True:
+        async def _stream_upstream():
+            client = httpx.AsyncClient(timeout=httpx.Timeout(90.0, connect=15.0))
+            response = None
+            try:
+                upstream_request = client.build_request(
+                    "POST",
+                    DEEPSEEK_CHAT_URL,
+                    headers=headers,
+                    json=payload,
+                )
+                response = await client.send(upstream_request, stream=True)
+                if not response.is_success:
+                    body = await response.aread()
+                    detail = body.decode("utf-8", errors="replace")[:500]
+                    yield f'data: {json.dumps({"error": {"message": detail or f"HTTP {response.status_code}"}}, ensure_ascii=False)}\n\n'
+                    yield "data: [DONE]\n\n"
+                    return
+                async for chunk in response.aiter_raw():
+                    yield chunk
+            finally:
+                if response is not None:
+                    await response.aclose()
+                await client.aclose()
+
+        return StreamingResponse(_stream_upstream(), media_type="text/event-stream")
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(90.0, connect=15.0)) as client:
+            response = await client.post(
+                DEEPSEEK_CHAT_URL,
+                headers=headers,
+                json=payload,
+            )
+    except httpx.TimeoutException as exc:
+        raise HTTPException(status_code=504, detail="调用上游模型超时") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"调用上游模型失败: {exc}") from exc
+
+    try:
+        data = response.json() if response.text else {}
+    except ValueError:
+        data = {}
+
+    if not response.is_success:
+        detail = response.text[:500] or f"HTTP {response.status_code}"
+        if isinstance(data, dict):
+            error_obj = data.get("error")
+            if isinstance(error_obj, dict):
+                detail = str(error_obj.get("message") or detail)
+            else:
+                detail = str(data.get("message") or detail)
+        raise HTTPException(status_code=response.status_code, detail=detail)
+
+    return data
 
 
 async def _run_chat_pipeline(
