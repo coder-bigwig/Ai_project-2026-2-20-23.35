@@ -1,0 +1,374 @@
+﻿# docker-compose.yml - 实训平台核心服务部署配置
+
+x-training-lab-image: &training_lab_image ${TRAINING_LAB_IMAGE:-training-lab:latest}
+
+services:
+  # ==================== 基础设施服务 ====================
+
+  # Nginx 反向代理
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - experiment-manager
+      - jupyterhub
+      - grafana
+      - deeptutor
+    networks:
+      - training-network
+    restart: always
+
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: jupyterhub
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_DB: jupyterhub
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - training-network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U jupyterhub" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    networks:
+      - training-network
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ==================== 核心应用服务 ====================
+
+  # 前端应用
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    networks:
+      - training-network
+    restart: unless-stopped
+
+  # 实验管理后端
+  experiment-manager:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8000"
+    networks:
+      - training-network
+    volumes:
+      - training-uploads:/app/uploads
+    environment:
+      DATABASE_URL: postgresql://jupyterhub:${DB_PASSWORD:-changeme}@postgres/jupyterhub
+      POSTGRES_SCHEMA: ${POSTGRES_SCHEMA:-experiment_manager}
+      REDIS_URL: redis://redis:6379/0
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      DEFAULT_PASSWORD: ${DEFAULT_PASSWORD:-fit350506}
+      ADMIN_ACCOUNTS: ${ADMIN_ACCOUNTS:-fit_admin}
+      TEACHER_ACCOUNTS: ${TEACHER_ACCOUNTS:-teacher_001,teacher_002,teacher_003,teacher_004,teacher_005}
+      # JupyterHub multi-tenant integration
+      JUPYTERHUB_INTERNAL_URL: http://jupyterhub:8000${JUPYTERHUB_BASE_URL:-/jupyter}
+      JUPYTERHUB_PUBLIC_URL: ${JUPYTERHUB_PUBLIC_URL:-/jupyter}
+      JUPYTERHUB_API_TOKEN: ${EXPERIMENT_MANAGER_API_TOKEN:-training-jhub-service-token}
+      JUPYTER_WORKSPACE_UI: ${JUPYTER_WORKSPACE_UI:-lab}
+      ENABLE_CODE_SERVER: ${ENABLE_CODE_SERVER:-1}
+      CODE_SERVER_PORT: ${CODE_SERVER_PORT:-13337}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # JupyterHub
+  jupyterhub:
+    build:
+      context: ./jupyterhub
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8000"
+    volumes:
+      # 挂载 Docker socket 以便启动用户容器
+      - /var/run/docker.sock:/var/run/docker.sock
+      # JupyterHub 数据持久化
+      - jupyterhub-data:/srv/jupyterhub
+      # 挂载配置文件（开发模式推荐）
+      - ./jupyterhub/jupyterhub_config.py:/srv/jupyterhub/jupyterhub_config.py
+    environment:
+      # 数据库配置
+      POSTGRES_DB: jupyterhub
+      POSTGRES_HOST: postgres
+      HUB_DB_URL: postgresql://jupyterhub:${DB_PASSWORD:-changeme}@postgres:5432/jupyterhub
+      # Docker Spawner 配置
+      # JupyterLab 镜像名称
+      DOCKER_NOTEBOOK_IMAGE: *training_lab_image
+      # Backend service token (for Hub API calls)
+      EXPERIMENT_MANAGER_API_TOKEN: ${EXPERIMENT_MANAGER_API_TOKEN:-training-jhub-service-token}
+      JUPYTERHUB_BASE_URL: ${JUPYTERHUB_BASE_URL:-/jupyter}
+      ADMIN_ACCOUNTS: ${ADMIN_ACCOUNTS:-fit_admin}
+      TEACHER_ACCOUNTS: ${TEACHER_ACCOUNTS:-teacher_001,teacher_002,teacher_003,teacher_004,teacher_005}
+      # Pass AI provider settings to spawned notebook containers (for Jupyter AI plugin).
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      ENABLE_CODE_SERVER: ${ENABLE_CODE_SERVER:-1}
+      CODE_SERVER_PORT: ${CODE_SERVER_PORT:-13337}
+    networks:
+      - training-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      lab-image-builder:
+        condition: service_completed_successfully
+      data-loader:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # 这是一个临时构建服务，用于构建学生镜像
+  # 在 docker compose up 时会运行并退出
+  lab-image-builder:
+    build:
+      context: .
+      dockerfile: Dockerfile.student
+      args:
+        JOVYAN_PASSWORD: ${JOVYAN_PASSWORD:-fit350506}
+    image: *training_lab_image
+    command: echo "Student image built successfully"
+    networks:
+      - training-network
+
+  # 数据加载服务：将宿主机实验文件同步到 Docker 卷
+  data-loader:
+    image: alpine:latest
+    volumes:
+      - ./experiments:/src
+      - course-materials:/dst
+    command: sh -c "cp -r /src/* /dst/ && echo 'Data sync complete'"
+    networks:
+      - training-network
+
+  # ==================== AI 与智能服务 ====================
+
+  # Ollama 本地大模型
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   volumes:
+  #     - ollama-data:/root/.ollama
+  #   ports:
+  #     - "11434:11434"
+  #   networks:
+  #     - training-network
+  #   restart: unless-stopped
+
+  # AI 助手服务
+  ai-assistant:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8000"
+    networks:
+      - training-network
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      CACHE_TTL: ${CACHE_TTL:-3600}
+      MAX_HISTORY: ${MAX_HISTORY:-10}
+    # depends_on:
+    #   - ollama
+    restart: unless-stopped
+
+  # DeepTutor 智能导师服务
+  deeptutor:
+    image: ghcr.io/hkuds/deeptutor:latest
+    ports:
+      - "${DEEPTUTOR_BACKEND_PORT:-18101}:18101"
+      - "${DEEPTUTOR_FRONTEND_PORT:-13782}:13782"
+    networks:
+      - training-network
+    environment:
+      BACKEND_PORT: 18101
+      FRONTEND_PORT: 13782
+      NEXT_PUBLIC_API_BASE: ${DEEPTUTOR_PUBLIC_API_BASE:-http://localhost:8080/deeptutor-api}
+      LLM_BINDING: ${DEEPTUTOR_LLM_BINDING:-deepseek}
+      LLM_MODEL: ${DEEPTUTOR_LLM_MODEL:-deepseek-chat}
+      LLM_API_KEY: ${DEEPTUTOR_LLM_API_KEY:-${DEEPSEEK_API_KEY:-}}
+      LLM_HOST: ${DEEPTUTOR_LLM_HOST:-https://api.deepseek.com}
+      LLM_API_VERSION: ${DEEPTUTOR_LLM_API_VERSION:-}
+      EMBEDDING_BINDING: ${DEEPTUTOR_EMBEDDING_BINDING:-openai}
+      EMBEDDING_MODEL: ${DEEPTUTOR_EMBEDDING_MODEL:-text-embedding-3-large}
+      EMBEDDING_API_KEY: ${DEEPTUTOR_EMBEDDING_API_KEY:-${OPENAI_API_KEY:-}}
+      EMBEDDING_HOST: ${DEEPTUTOR_EMBEDDING_HOST:-https://api.openai.com/v1}
+      EMBEDDING_DIMENSION: ${DEEPTUTOR_EMBEDDING_DIMENSION:-3072}
+      EMBEDDING_API_VERSION: ${DEEPTUTOR_EMBEDDING_API_VERSION:-}
+      EMBEDDING_SEND_DIMENSIONS: ${DEEPTUTOR_EMBEDDING_SEND_DIMENSIONS:-}
+      SEARCH_PROVIDER: ${DEEPTUTOR_SEARCH_PROVIDER:-}
+      SEARCH_API_KEY: ${DEEPTUTOR_SEARCH_API_KEY:-}
+      SEARCH_BASE_URL: ${DEEPTUTOR_SEARCH_BASE_URL:-}
+      DISABLE_SSL_VERIFY: ${DEEPTUTOR_DISABLE_SSL_VERIFY:-false}
+    volumes:
+      - deeptutor-user-data:/app/data/user
+      - deeptutor-knowledge-bases:/app/data/knowledge_bases
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:18101/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ==================== 监控服务 ====================
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus-rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - training-network
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+
+  loki:
+    image: grafana/loki:2.9.8
+    volumes:
+      - ./monitoring/loki-config.yml:/etc/loki/local-config.yml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+    networks:
+      - training-network
+    restart: unless-stopped
+    command:
+      - "-config.file=/etc/loki/local-config.yml"
+
+  promtail:
+    image: grafana/promtail:2.9.8
+    volumes:
+      - ./monitoring/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    networks:
+      - training-network
+    depends_on:
+      - loki
+    restart: unless-stopped
+    command:
+      - "-config.file=/etc/promtail/config.yml"
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    volumes:
+      - /:/host:ro
+    networks:
+      - training-network
+    restart: unless-stopped
+    command:
+      - "--path.rootfs=/host"
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    networks:
+      - training-network
+    restart: unless-stopped
+    command:
+      - "--docker_only=true"
+      - "--housekeeping_interval=30s"
+
+  grafana:
+    image: grafana/grafana:latest
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana-provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana-dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "3001:3000"
+    networks:
+      - training-network
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD:-changeme}
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-fit_admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-fit350506}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:8080/grafana/}
+      GF_SERVER_SERVE_FROM_SUB_PATH: ${GRAFANA_SERVE_FROM_SUB_PATH:-true}
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/training-platform-overview.json
+      GF_INSTALL_PLUGINS: ${GF_INSTALL_PLUGINS:-}
+    depends_on:
+      - prometheus
+      - loki
+    restart: unless-stopped
+
+  grafana-init-users:
+    image: curlimages/curl:8.10.1
+    volumes:
+      - ./monitoring/grafana-init-users.sh:/scripts/grafana-init-users.sh:ro
+    networks:
+      - training-network
+    environment:
+      GRAFANA_URL: http://grafana:3000
+      GRAFANA_ADMIN_LOGIN: ${GRAFANA_ADMIN_USER:-fit_admin}
+      GRAFANA_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-fit350506}
+      GRAFANA_TEACHER_PASSWORD: ${GRAFANA_TEACHER_PASSWORD:-fit350506}
+      GRAFANA_TEACHER_LOGINS: ${GRAFANA_TEACHER_LOGINS:-teacher_001 teacher_002 teacher_003 teacher_004 teacher_005}
+    depends_on:
+      - grafana
+    restart: "no"
+    command:
+      - sh
+      - /scripts/grafana-init-users.sh
+
+# ==================== 网络配置 ====================
+
+networks:
+  training-network:
+    driver: bridge
+
+# ==================== 数据卷配置 ====================
+
+volumes:
+  postgres-data:
+  redis-data:
+  jhub-home:
+  training-uploads:
+  jupyterhub-data:
+  ollama-data:
+  prometheus-data:
+  loki-data:
+  grafana-data:
+  course-materials:
+  shared-datasets:
+  shared-workspace:
+  deeptutor-user-data:
+  deeptutor-knowledge-bases:
