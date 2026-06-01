@@ -1,0 +1,404 @@
+# docker-compose.server.yml
+#
+# Server deployment compose:
+# - Exposes only the portal via Nginx (default :80)
+# - Proxies JupyterHub under `/jupyter/*` (multi-tenant)
+# - Keeps Postgres/Redis internal
+# - Optionally exposes Prometheus/Grafana/AI only on 127.0.0.1 (SSH tunnel friendly)
+
+x-training-lab-image: &training_lab_image ${TRAINING_LAB_IMAGE:-training-lab:latest}
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "${TRAINING_HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx/nginx.server.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - experiment-manager
+      - jupyterhub
+      - deeptutor
+      - grafana
+    networks:
+      - training-network
+    restart: always
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: jupyterhub
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_DB: jupyterhub
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - training-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jupyterhub" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    networks:
+      - training-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    networks:
+      - training-network
+    restart: unless-stopped
+
+  experiment-manager:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: >
+      sh -lc "uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${EXPERIMENT_MANAGER_WORKERS:-8}"
+    networks:
+      - training-network
+    volumes:
+      - training-uploads:/app/uploads
+      # Shared with deeptutor service so backend can write users.json
+      # and (optionally) read the auth_secret file.
+      - deeptutor-multi-user:/app/deeptutor-multi-user
+    environment:
+      DATABASE_URL: postgresql://jupyterhub:${DB_PASSWORD:-changeme}@postgres/jupyterhub
+      POSTGRES_SCHEMA: ${POSTGRES_SCHEMA:-experiment_manager}
+      REDIS_URL: redis://redis:6379/0
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      AI_INVOCATION_LOG_SECRET: ${AI_INVOCATION_LOG_SECRET:-}
+      DEFAULT_PASSWORD: ${DEFAULT_PASSWORD:-fit350506}
+      ADMIN_ACCOUNTS: ${ADMIN_ACCOUNTS:-fit_admin}
+      TEACHER_ACCOUNTS: ${TEACHER_ACCOUNTS:-teacher_001,teacher_002,teacher_003,teacher_004,teacher_005}
+
+      # DeepTutor SSO bridge — must use the same secret as the deeptutor service
+      DEEPTUTOR_AUTH_SECRET: ${DEEPTUTOR_AUTH_SECRET:-}
+      DEEPTUTOR_TOKEN_EXPIRE_HOURS: ${DEEPTUTOR_TOKEN_EXPIRE_HOURS:-24}
+      DEEPTUTOR_MULTI_USER_DIR: /app/deeptutor-multi-user
+
+      # JupyterHub reverse-proxied under Nginx `/jupyter/*`
+      JUPYTERHUB_INTERNAL_URL: http://jupyterhub:8000${JUPYTERHUB_BASE_URL:-/jupyter}
+      JUPYTERHUB_PUBLIC_URL: ${JUPYTERHUB_PUBLIC_URL:-/jupyter}
+      JUPYTERHUB_API_TOKEN: ${EXPERIMENT_MANAGER_API_TOKEN:-training-jhub-service-token}
+      JUPYTERHUB_REQUEST_TIMEOUT_SECONDS: ${JUPYTERHUB_REQUEST_TIMEOUT_SECONDS:-45}
+      JUPYTERHUB_START_TIMEOUT_SECONDS: ${JUPYTERHUB_START_TIMEOUT_SECONDS:-300}
+      JUPYTER_START_CONCURRENCY: ${JUPYTER_START_CONCURRENCY:-4}
+      JUPYTER_WORKSPACE_UI: ${JUPYTER_WORKSPACE_UI:-lab}
+      ENABLE_CODE_SERVER: ${ENABLE_CODE_SERVER:-1}
+      CODE_SERVER_PORT: ${CODE_SERVER_PORT:-13337}
+      RESOURCE_SMALL_LABEL: ${RESOURCE_SMALL_LABEL:-小实验}
+      RESOURCE_SMALL_CPU: ${RESOURCE_SMALL_CPU:-1}
+      RESOURCE_SMALL_MEMORY: ${RESOURCE_SMALL_MEMORY:-2G}
+      RESOURCE_SMALL_STORAGE: ${RESOURCE_SMALL_STORAGE:-2G}
+      RESOURCE_SMALL_MAX_USERS: ${RESOURCE_SMALL_MAX_USERS:-20}
+      RESOURCE_MEDIUM_LABEL: ${RESOURCE_MEDIUM_LABEL:-普通实验}
+      RESOURCE_MEDIUM_CPU: ${RESOURCE_MEDIUM_CPU:-1}
+      RESOURCE_MEDIUM_MEMORY: ${RESOURCE_MEDIUM_MEMORY:-4G}
+      RESOURCE_MEDIUM_STORAGE: ${RESOURCE_MEDIUM_STORAGE:-4G}
+      RESOURCE_MEDIUM_MAX_USERS: ${RESOURCE_MEDIUM_MAX_USERS:-12}
+      RESOURCE_LARGE_LABEL: ${RESOURCE_LARGE_LABEL:-大项目}
+      RESOURCE_LARGE_CPU: ${RESOURCE_LARGE_CPU:-2}
+      RESOURCE_LARGE_MEMORY: ${RESOURCE_LARGE_MEMORY:-8G}
+      RESOURCE_LARGE_STORAGE: ${RESOURCE_LARGE_STORAGE:-8G}
+      RESOURCE_LARGE_MAX_USERS: ${RESOURCE_LARGE_MAX_USERS:-5}
+      RESOURCE_XLARGE_LABEL: ${RESOURCE_XLARGE_LABEL:-超大项目}
+      RESOURCE_XLARGE_CPU: ${RESOURCE_XLARGE_CPU:-4}
+      RESOURCE_XLARGE_MEMORY: ${RESOURCE_XLARGE_MEMORY:-16G}
+      RESOURCE_XLARGE_STORAGE: ${RESOURCE_XLARGE_STORAGE:-20G}
+      RESOURCE_XLARGE_MAX_USERS: ${RESOURCE_XLARGE_MAX_USERS:-2}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  jupyterhub:
+    build:
+      context: ./jupyterhub
+      dockerfile: Dockerfile
+    volumes:
+      # Required: spawn per-user containers
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Persist hub DB + secrets
+      - jupyterhub-data:/srv/jupyterhub
+      # Override config (easy updates without rebuild)
+      - ./jupyterhub/jupyterhub_config.py:/srv/jupyterhub/jupyterhub_config.py
+    environment:
+      HUB_DB_URL: postgresql://jupyterhub:${DB_PASSWORD:-changeme}@postgres/jupyterhub
+      DOCKER_NOTEBOOK_IMAGE: *training_lab_image
+      EXPERIMENT_MANAGER_API_TOKEN: ${EXPERIMENT_MANAGER_API_TOKEN:-training-jhub-service-token}
+      ADMIN_ACCOUNTS: ${ADMIN_ACCOUNTS:-fit_admin}
+      TEACHER_ACCOUNTS: ${TEACHER_ACCOUNTS:-teacher_001,teacher_002,teacher_003,teacher_004,teacher_005}
+      # Pass AI provider settings to spawned notebook containers (for Jupyter AI plugin).
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+
+      # Must match Nginx path prefix (no trailing slash needed).
+      JUPYTERHUB_BASE_URL: ${JUPYTERHUB_BASE_URL:-/jupyter}
+      JUPYTERHUB_SPAWNER_START_TIMEOUT: ${JUPYTERHUB_SPAWNER_START_TIMEOUT:-300}
+      JUPYTERHUB_SPAWNER_HTTP_TIMEOUT: ${JUPYTERHUB_SPAWNER_HTTP_TIMEOUT:-300}
+      JUPYTERHUB_IDLE_TIMEOUT_SECONDS: ${JUPYTERHUB_IDLE_TIMEOUT_SECONDS:-1800}
+      JUPYTERHUB_CULL_EVERY_SECONDS: ${JUPYTERHUB_CULL_EVERY_SECONDS:-300}
+
+      # Optional: require a shared password for Hub logins (recommended on servers).
+      DUMMY_PASSWORD: ${DUMMY_PASSWORD:-}
+      ENABLE_CODE_SERVER: ${ENABLE_CODE_SERVER:-1}
+      CODE_SERVER_PORT: ${CODE_SERVER_PORT:-13337}
+    networks:
+      - training-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      lab-image-builder:
+        condition: service_completed_successfully
+      data-loader:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  lab-image-builder:
+    build:
+      context: .
+      dockerfile: Dockerfile.student
+      args:
+        JOVYAN_PASSWORD: ${JOVYAN_PASSWORD:-fit350506}
+    image: *training_lab_image
+    command: echo "Student image built successfully"
+    networks:
+      - training-network
+
+  data-loader:
+    image: alpine:latest
+    volumes:
+      - ./experiments:/src:ro
+      - course-materials:/dst
+    command: sh -c "cp -r /src/* /dst/ && echo 'Data sync complete'"
+    networks:
+      - training-network
+
+  ai-assistant:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    ports:
+      # Local-only by default (use SSH tunnel if needed)
+      - "127.0.0.1:${AI_ASSISTANT_PORT:-8002}:8000"
+    networks:
+      - training-network
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      CACHE_TTL: ${CACHE_TTL:-3600}
+      MAX_HISTORY: ${MAX_HISTORY:-10}
+      AI_INVOCATION_LOG_URL: ${AI_INVOCATION_LOG_URL:-http://experiment-manager:8000/api/internal/ai-invocation-logs}
+      AI_INVOCATION_LOG_SECRET: ${AI_INVOCATION_LOG_SECRET:-}
+    restart: unless-stopped
+
+  deeptutor:
+    image: ghcr.io/hkuds/deeptutor:latest
+    ports:
+      - "127.0.0.1:${DEEPTUTOR_BACKEND_PORT:-18101}:18101"
+      - "127.0.0.1:${DEEPTUTOR_FRONTEND_PORT:-13782}:13782"
+    networks:
+      - training-network
+    environment:
+      BACKEND_PORT: 18101
+      FRONTEND_PORT: 13782
+      NEXT_PUBLIC_API_BASE_EXTERNAL: ${DEEPTUTOR_PUBLIC_API_BASE_EXTERNAL:-${DEEPTUTOR_PUBLIC_API_BASE:-/deeptutor-api}}
+      NEXT_PUBLIC_API_BASE: ${DEEPTUTOR_PUBLIC_API_BASE:-${DEEPTUTOR_PUBLIC_API_BASE_EXTERNAL:-/deeptutor-api}}
+      LLM_BINDING: ${DEEPTUTOR_LLM_BINDING:-deepseek}
+      LLM_MODEL: ${DEEPTUTOR_LLM_MODEL:-deepseek-chat}
+      LLM_API_KEY: ${DEEPTUTOR_LLM_API_KEY:-${DEEPSEEK_API_KEY:-}}
+      LLM_HOST: ${DEEPTUTOR_LLM_HOST:-https://api.deepseek.com}
+      LLM_API_VERSION: ${DEEPTUTOR_LLM_API_VERSION:-}
+      EMBEDDING_BINDING: ${DEEPTUTOR_EMBEDDING_BINDING:-openai}
+      EMBEDDING_MODEL: ${DEEPTUTOR_EMBEDDING_MODEL:-text-embedding-3-large}
+      EMBEDDING_API_KEY: ${DEEPTUTOR_EMBEDDING_API_KEY:-${OPENAI_API_KEY:-}}
+      EMBEDDING_HOST: ${DEEPTUTOR_EMBEDDING_HOST:-https://api.openai.com/v1}
+      EMBEDDING_DIMENSION: ${DEEPTUTOR_EMBEDDING_DIMENSION:-3072}
+      EMBEDDING_API_VERSION: ${DEEPTUTOR_EMBEDDING_API_VERSION:-}
+      EMBEDDING_SEND_DIMENSIONS: ${DEEPTUTOR_EMBEDDING_SEND_DIMENSIONS:-}
+      SEARCH_PROVIDER: ${DEEPTUTOR_SEARCH_PROVIDER:-}
+      SEARCH_API_KEY: ${DEEPTUTOR_SEARCH_API_KEY:-}
+      SEARCH_BASE_URL: ${DEEPTUTOR_SEARCH_BASE_URL:-}
+      DISABLE_SSL_VERIFY: ${DEEPTUTOR_DISABLE_SSL_VERIFY:-false}
+      # === Multi-tenancy: turn on DeepTutor's built-in AUTH ===
+      AUTH_ENABLED: "true"
+      AUTH_SECRET: ${DEEPTUTOR_AUTH_SECRET:-}
+      AUTH_TOKEN_EXPIRE_HOURS: ${DEEPTUTOR_TOKEN_EXPIRE_HOURS:-24}
+      AUTH_COOKIE_SECURE: ${DEEPTUTOR_COOKIE_SECURE:-false}
+      CORS_ORIGINS: ${DEEPTUTOR_CORS_ORIGINS:-}
+    volumes:
+      - deeptutor-user-data:/app/data/user
+      - deeptutor-knowledge-bases:/app/data/knowledge_bases
+      - ./deeptutor-overrides/settings.py:/app/deeptutor/api/routers/settings.py:ro
+      # Per-user workspaces + users.json; shared read-write with backend.
+      - deeptutor-multi-user:/app/multi-user
+      # Override: make require_auth async so set_current_user (ContextVar)
+      # propagates to endpoint handlers. Without this, per-user PathService
+      # falls back to legacy /app/data/user/ for all HTTP endpoints.
+      - ./deeptutor-overrides/auth.py:/app/deeptutor/api/routers/auth.py:ro
+      # Local SSO isolation overrides: scope chat_history.db by dt_token uid
+      # for both HTTP session APIs and the unified chat WebSocket.
+      - ./deeptutor-overrides/user_context.py:/app/deeptutor/user_context.py:ro
+      - ./deeptutor-overrides/main.py:/app/deeptutor/api/main.py:ro
+      - ./deeptutor-overrides/unified_ws.py:/app/deeptutor/api/routers/unified_ws.py:ro
+      - ./deeptutor-overrides/sqlite_store.py:/app/deeptutor/services/session/sqlite_store.py:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:18101/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus-rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    networks:
+      - training-network
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+
+  loki:
+    image: grafana/loki:2.9.8
+    volumes:
+      - ./monitoring/loki-config.yml:/etc/loki/local-config.yml:ro
+      - loki-data:/loki
+    ports:
+      - "127.0.0.1:${LOKI_PORT:-3100}:3100"
+    networks:
+      - training-network
+    restart: unless-stopped
+    command:
+      - "-config.file=/etc/loki/local-config.yml"
+
+  promtail:
+    image: grafana/promtail:2.9.8
+    volumes:
+      - ./monitoring/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    networks:
+      - training-network
+    depends_on:
+      - loki
+    restart: unless-stopped
+    command:
+      - "-config.file=/etc/promtail/config.yml"
+
+  node-exporter:
+    image: ${NODE_EXPORTER_IMAGE:-prom/node-exporter:latest}
+    volumes:
+      - /:/host:ro,rslave
+    networks:
+      training-network:
+        aliases:
+          - node-exporter
+    restart: unless-stopped
+    command:
+      - "--path.rootfs=/host"
+
+  cadvisor:
+    image: ${CADVISOR_IMAGE:-ghcr.io/google/cadvisor:0.55.1}
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    networks:
+      - training-network
+    restart: unless-stopped
+    command:
+      - "--docker_only=true"
+      - "--housekeeping_interval=30s"
+
+  grafana:
+    image: grafana/grafana:latest
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana-provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana-dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3001}:3000"
+    networks:
+      - training-network
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD:-changeme}
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-fit_admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-fit350506}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost/grafana/}
+      GF_SERVER_SERVE_FROM_SUB_PATH: ${GRAFANA_SERVE_FROM_SUB_PATH:-true}
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/training-platform-overview.json
+      GF_INSTALL_PLUGINS: ${GF_INSTALL_PLUGINS:-grafana-piechart-panel}
+    depends_on:
+      - prometheus
+      - loki
+    restart: unless-stopped
+
+  grafana-init-users:
+    image: curlimages/curl:8.10.1
+    volumes:
+      - ./monitoring/grafana-init-users.sh:/scripts/grafana-init-users.sh:ro
+    networks:
+      - training-network
+    environment:
+      GRAFANA_URL: http://grafana:3000
+      GRAFANA_ADMIN_LOGIN: ${GRAFANA_ADMIN_USER:-fit_admin}
+      GRAFANA_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-fit350506}
+      GRAFANA_TEACHER_PASSWORD: ${GRAFANA_TEACHER_PASSWORD:-fit350506}
+      GRAFANA_TEACHER_LOGINS: ${GRAFANA_TEACHER_LOGINS:-teacher_001 teacher_002 teacher_003 teacher_004 teacher_005}
+    depends_on:
+      - grafana
+    restart: "no"
+    command:
+      - sh
+      - /scripts/grafana-init-users.sh
+
+networks:
+  training-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  training-uploads:
+  jupyterhub-data:
+  prometheus-data:
+  loki-data:
+  grafana-data:
+  course-materials:
+  shared-datasets:
+  deeptutor-user-data:
+  deeptutor-knowledge-bases:
+  # Per-user DeepTutor workspaces + users.json + auth_secret; mounted into
+  # both `deeptutor` (at /app/multi-user) and `experiment-manager`
+  # (at /app/deeptutor-multi-user) so the SSO bridge can register users.
+  deeptutor-multi-user:
