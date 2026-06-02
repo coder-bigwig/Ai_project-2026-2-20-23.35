@@ -28,6 +28,14 @@ async function createDeepTutorSession(username) {
     );
 }
 
+export function getDeepTutorErrorMessage(err) {
+    const detail = err?.response?.data?.detail;
+    if (typeof detail === 'string' && detail.trim()) {
+        return `DeepTutor login failed: ${detail.trim()}`;
+    }
+    return 'DeepTutor login failed. Please try again.';
+}
+
 function DeepTutorFrame() {
     const navigate = useNavigate();
 
@@ -47,7 +55,7 @@ function DeepTutorFrame() {
             } catch (err) {
                 if (cancelled) return;
                 console.error('DeepTutor SSO failed:', err);
-                window.alert('DeepTutor login failed. Please try again.');
+                window.alert(getDeepTutorErrorMessage(err));
                 navigate('/', { replace: true });
                 return;
             }
