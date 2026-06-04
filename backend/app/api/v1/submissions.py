@@ -130,6 +130,16 @@ async def grade_experiment(
     )
 
 
+async def return_submission(
+    student_exp_id: str,
+    comment: Optional[str] = None,
+    teacher_username: Optional[str] = None,
+    db: Optional[AsyncSession] = Depends(get_db),
+):
+    service = build_submission_service(main_module=main, db=db)
+    return await service.return_submission(student_exp_id=student_exp_id, comment=comment)
+
+
 router.add_api_route("/api/student-experiments/start/{experiment_id}", start_experiment, methods=["POST"])
 router.add_api_route("/api/student-experiments/{student_exp_id}/submit", submit_experiment, methods=["POST"])
 router.add_api_route("/api/student-experiments/{student_exp_id}/pdf", upload_submission_pdf, methods=["POST"])
@@ -141,3 +151,4 @@ router.add_api_route("/api/student-experiments/{student_exp_id}", get_student_ex
 router.add_api_route("/api/student-submissions/{pdf_id}/download", download_submission_pdf, methods=["GET"])
 router.add_api_route("/api/teacher/experiments/{experiment_id}/submissions", get_experiment_submissions, methods=["GET"])
 router.add_api_route("/api/teacher/grade/{student_exp_id}", grade_experiment, methods=["POST"])
+router.add_api_route("/api/teacher/submissions/{student_exp_id}/return", return_submission, methods=["POST"])

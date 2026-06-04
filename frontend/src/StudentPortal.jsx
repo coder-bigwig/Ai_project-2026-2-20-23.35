@@ -154,7 +154,7 @@ function StudentPortal({ username, tab }) {
     <div className="student-portal">
       {/* 导航栏 */}
       <header className="portal-header">
-        <h1>教学创新实践平台</h1>
+        <h1>福州理工学院AI编程实践教学平台</h1>
         <nav>
           <button onClick={() => setActiveTab('available')}>
             可用实验

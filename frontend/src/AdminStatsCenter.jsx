@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import * as echarts from 'echarts/core';
-import { BarChart, HeatmapChart, PieChart } from 'echarts/charts';
-import { GridComponent, LegendComponent, TooltipComponent, VisualMapComponent } from 'echarts/components';
+import { HeatmapChart } from 'echarts/charts';
+import { GridComponent, TooltipComponent, VisualMapComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import './AdminStatsCenter.css';
 
@@ -10,28 +10,27 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 const AUTO_REFRESH_MS = 30000;
 
 echarts.use([
-  BarChart,
   HeatmapChart,
-  PieChart,
   GridComponent,
-  LegendComponent,
   TooltipComponent,
   VisualMapComponent,
   CanvasRenderer,
 ]);
 
 const CHART_COLORS = {
-  blue: '#2f84c8',
-  blueDark: '#1f5f95',
-  green: '#37b06e',
-  orange: '#ef9f2f',
-  violet: '#7a6be8',
-  pink: '#e75c93',
-  red: '#e25555',
-  slate: '#5d7a97',
   grid: '#e6eef7',
   text: '#234c72',
   muted: '#6b869f',
+};
+
+const CARD_TONES = {
+  blue: { accent: '#2f84c8', soft: '#eaf4ff', ink: '#1f5f95' },
+  cyan: { accent: '#2aa6b8', soft: '#e8fbfe', ink: '#147786' },
+  green: { accent: '#37b06e', soft: '#eafbf2', ink: '#1f7c4d' },
+  amber: { accent: '#ef9f2f', soft: '#fff5e6', ink: '#a86811' },
+  violet: { accent: '#7a6be8', soft: '#f1efff', ink: '#5647be' },
+  pink: { accent: '#e75c93', soft: '#fff0f6', ink: '#a93565' },
+  slate: { accent: '#5d7a97', soft: '#eef3f8', ink: '#3f5b76' },
 };
 
 function clampPercent(value) {
@@ -93,12 +92,6 @@ function isCompletedProgressStatus(status) {
   );
 }
 
-function isInProgressRow(row) {
-  if (isCompletedProgressStatus(row?.status)) return false;
-  const status = String(row?.status || '').toLowerCase();
-  return Boolean(row?.start_time) || status.includes('progress') || status.includes('进行');
-}
-
 function isCompletedDurationRow(row) {
   const seconds = Number(row?.duration_seconds);
   return row?.duration_status === 'completed' && Number.isFinite(seconds) && seconds >= 0;
@@ -110,6 +103,16 @@ function getStudentLabel(row) {
 
 function getExperimentLabel(row) {
   return normalizeText(row?.experiment_title) || normalizeText(row?.experiment_id) || '未命名实验';
+}
+
+function getExperimentAxisLabel(row) {
+  return normalizeText(row?.course_name) || getExperimentLabel(row);
+}
+
+function getCourseStudentLabel(row) {
+  const courseName = normalizeText(row?.course_name) || getExperimentLabel(row);
+  const studentId = normalizeText(row?.student_id);
+  return studentId ? `${courseName}-${studentId}` : courseName;
 }
 
 function resolveCourseName(item) {
@@ -154,6 +157,51 @@ function summarizeCourseStatsPayload(payload) {
     experimentCount: items.length,
     publishedExperimentCount,
   };
+}
+
+function buildExperimentInfoMap(coursePayload) {
+  const map = new Map();
+  const items = Array.isArray(coursePayload) ? coursePayload : [];
+  items.forEach((course) => {
+    const courseName = normalizeText(course?.name) || normalizeText(course?.course_name);
+    const experiments = Array.isArray(course?.experiments) ? course.experiments : [];
+    experiments.forEach((experiment) => {
+      const experimentId = normalizeText(experiment?.id);
+      if (!experimentId) return;
+      map.set(experimentId, {
+        course_name: courseName || normalizeText(experiment?.course_name),
+        experiment_title: normalizeText(experiment?.title) || normalizeText(experiment?.experiment_title),
+      });
+    });
+  });
+
+  items.forEach((experiment) => {
+    const experimentId = normalizeText(experiment?.id);
+    if (!experimentId || map.has(experimentId)) return;
+    map.set(experimentId, {
+      course_name: resolveCourseName(experiment),
+      experiment_title: normalizeText(experiment?.title) || normalizeText(experiment?.experiment_title),
+    });
+  });
+
+  return map;
+}
+
+function enrichProgressRowsWithExperimentInfo(progressRows, coursePayload) {
+  const infoMap = buildExperimentInfoMap(coursePayload);
+  const rows = Array.isArray(progressRows) ? progressRows : [];
+  if (infoMap.size === 0) return rows;
+
+  return rows.map((row) => {
+    const experimentId = normalizeText(row?.experiment_id);
+    const info = experimentId ? infoMap.get(experimentId) : null;
+    if (!info) return row;
+    return {
+      ...row,
+      course_name: normalizeText(row?.course_name) || info.course_name,
+      experiment_title: normalizeText(row?.experiment_title) || info.experiment_title,
+    };
+  });
 }
 
 function buildOptionBase() {
@@ -212,6 +260,37 @@ function EChartPanel({ title, subtitle, option, empty, emptyText = '暂无可展
   );
 }
 
+function roleLabel(role) {
+  const normalized = String(role || '').toLowerCase();
+  if (normalized === 'teacher') return '教师';
+  if (normalized === 'student') return '学生';
+  if (normalized === 'admin') return '管理员';
+  return normalized || '未知';
+}
+
+function roleTone(role) {
+  const normalized = String(role || '').toLowerCase();
+  if (normalized === 'teacher') return 'blue';
+  if (normalized === 'student') return 'green';
+  if (normalized === 'admin') return 'slate';
+  return 'slate';
+}
+
+function statusMeta(row) {
+  if (row?.server_running) return { label: '在线', className: 'is-online' };
+  if (row?.server_pending) return { label: '启动中', className: 'is-pending' };
+  return { label: '离线', className: 'is-offline' };
+}
+
+function toneStyle(toneName) {
+  const tone = CARD_TONES[toneName] || CARD_TONES.blue;
+  return {
+    '--admin-sc-accent': tone.accent,
+    '--admin-sc-soft': tone.soft,
+    '--admin-sc-ink': tone.ink,
+  };
+}
+
 function StatIcon({ name }) {
   const common = {
     width: 20,
@@ -226,6 +305,15 @@ function StatIcon({ name }) {
   };
 
   switch (name) {
+    case 'grid':
+      return (
+        <svg {...common}>
+          <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+          <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+          <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+          <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+        </svg>
+      );
     case 'users':
       return (
         <svg {...common}>
@@ -233,6 +321,14 @@ function StatIcon({ name }) {
           <circle cx="9.5" cy="8" r="3" />
           <path d="M21 20v-1a4 4 0 0 0-3-3.86" />
           <path d="M16.5 5.2a3 3 0 0 1 0 5.6" />
+        </svg>
+      );
+    case 'user-active':
+      return (
+        <svg {...common}>
+          <circle cx="10" cy="8" r="3" />
+          <path d="M4 20v-1a6 6 0 0 1 12 0v1" />
+          <path d="M18 8l2 2 4-4" />
         </svg>
       );
     case 'activity':
@@ -258,11 +354,37 @@ function StatIcon({ name }) {
           <path d="M8.5 15h7" />
         </svg>
       );
+    case 'rocket':
+      return (
+        <svg {...common}>
+          <path d="M5 19c1.5-.3 3.2-1.1 4.5-2.4l5.1-5.1A8.3 8.3 0 0 0 17.9 4c-2.2.1-4.4 1-6 2.6L6.8 11.7C5.5 13 4.7 14.7 4.4 16.2L4 18z" />
+          <path d="M13 7l4 4" />
+          <path d="M6 18l-2 2" />
+        </svg>
+      );
     case 'check':
+    case 'check-circle':
       return (
         <svg {...common}>
           <circle cx="12" cy="12" r="8.5" />
           <path d="M8.8 12.2l2.2 2.2 4.3-4.4" />
+        </svg>
+      );
+    case 'monitor':
+      return (
+        <svg {...common}>
+          <rect x="3" y="4" width="18" height="12" rx="2" />
+          <path d="M8 20h8" />
+          <path d="M12 16v4" />
+        </svg>
+      );
+    case 'repeat':
+      return (
+        <svg {...common}>
+          <path d="M17 1l4 4-4 4" />
+          <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+          <path d="M7 23l-4-4 4-4" />
+          <path d="M21 13v2a4 4 0 0 1-4 4H3" />
         </svg>
       );
     case 'clock':
@@ -281,26 +403,170 @@ function StatIcon({ name }) {
   }
 }
 
-function CoreMetricCard({ item }) {
+function MetricMeterPanel({ title, subtitle, metrics }) {
   return (
-    <article className={`admin-sc-metric is-${item.tone || 'blue'}`}>
-      <div className="admin-sc-metric-icon">
-        <StatIcon name={item.icon} />
+    <section className="admin-sc-chart-panel">
+      <div className="admin-sc-chart-head">
+        <div>
+          <h3>{title}</h3>
+          {subtitle ? <p>{subtitle}</p> : null}
+        </div>
       </div>
-      <div className="admin-sc-metric-main">
-        <div className="admin-sc-metric-label">{item.label}</div>
-        <strong>{item.value}</strong>
-        <span>{item.note}</span>
+      <div className="admin-sc-meter-list">
+        {metrics.map((metric) => (
+          <div className="admin-sc-meter-item" key={metric.key}>
+            <div className="admin-sc-meter-meta">
+              <div className="admin-sc-meter-left">
+                <span className="admin-sc-meter-label">{metric.label}</span>
+                {metric.note ? <span className="admin-sc-meter-note">{metric.note}</span> : null}
+              </div>
+              <strong className="admin-sc-meter-value">{metric.valueText}</strong>
+            </div>
+            <div className="admin-sc-meter-track" aria-hidden="true">
+              <div
+                className="admin-sc-meter-fill"
+                style={{ width: `${clampPercent(metric.percent)}%`, backgroundColor: metric.color || '#2f84c8' }}
+              />
+            </div>
+          </div>
+        ))}
       </div>
-      <div className="admin-sc-metric-track" aria-hidden="true">
-        <div style={{ width: `${clampPercent(item.percent ?? 100)}%` }} />
-      </div>
-    </article>
+    </section>
   );
 }
 
-function buildDurationModels(progressRows, filters) {
-  const sourceRows = Array.isArray(progressRows) ? progressRows : [];
+function CompareBarsPanel({ title, subtitle, groups, footerStats }) {
+  return (
+    <section className="admin-sc-chart-panel">
+      <div className="admin-sc-chart-head">
+        <div>
+          <h3>{title}</h3>
+          {subtitle ? <p>{subtitle}</p> : null}
+        </div>
+      </div>
+      <div className="admin-sc-compare-list">
+        {groups.map((group) => {
+          const teacherValue = Number(group.teacherValue || 0);
+          const studentValue = Number(group.studentValue || 0);
+          const localMax = Math.max(1, teacherValue, studentValue);
+          const total = teacherValue + studentValue;
+          const teacherShare = total > 0 ? (teacherValue / total) * 100 : 0;
+          const studentShare = total > 0 ? (studentValue / total) * 100 : 0;
+          const formatValue = group.formatter || formatCount;
+          return (
+            <div className="admin-sc-compare-item" key={group.key}>
+              <div className="admin-sc-compare-top">
+                <span className="admin-sc-compare-label">{group.label}</span>
+                <span className="admin-sc-compare-total">总计 {formatValue(total)}</span>
+              </div>
+              <div className="admin-sc-compare-bars">
+                <div className="admin-sc-role-row">
+                  <span className="admin-sc-role-tag is-teacher">教师</span>
+                  <div className="admin-sc-role-track" aria-hidden="true">
+                    <div
+                      className="admin-sc-role-fill is-teacher"
+                      style={{ width: `${Math.max(0, Math.min(100, (teacherValue / localMax) * 100))}%` }}
+                    />
+                  </div>
+                  <span className="admin-sc-role-value">{formatValue(teacherValue)}</span>
+                  <span className="admin-sc-role-share">{formatPercent(teacherShare)}</span>
+                </div>
+                <div className="admin-sc-role-row">
+                  <span className="admin-sc-role-tag is-student">学生</span>
+                  <div className="admin-sc-role-track" aria-hidden="true">
+                    <div
+                      className="admin-sc-role-fill is-student"
+                      style={{ width: `${Math.max(0, Math.min(100, (studentValue / localMax) * 100))}%` }}
+                    />
+                  </div>
+                  <span className="admin-sc-role-value">{formatValue(studentValue)}</span>
+                  <span className="admin-sc-role-share">{formatPercent(studentShare)}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {Array.isArray(footerStats) && footerStats.length > 0 ? (
+        <div className="admin-sc-mini-grid">
+          {footerStats.map((item) => (
+            <div className="admin-sc-mini-card" key={item.key}>
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function TopUsersPanel({ title, subtitle, rows }) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return (
+      <section className="admin-sc-chart-panel">
+        <div className="admin-sc-chart-head">
+          <div>
+            <h3>{title}</h3>
+            {subtitle ? <p>{subtitle}</p> : null}
+          </div>
+        </div>
+        <div className="admin-sc-empty">暂无 Jupyter 使用用户数据</div>
+      </section>
+    );
+  }
+
+  const scoreMax = Math.max(
+    1,
+    ...rows.map((row) => Math.max(Number(row.total_with_active_seconds || 0), Number(row.session_count || 0)))
+  );
+
+  return (
+    <section className="admin-sc-chart-panel">
+      <div className="admin-sc-chart-head">
+        <div>
+          <h3>{title}</h3>
+          {subtitle ? <p>{subtitle}</p> : null}
+        </div>
+      </div>
+      <div className="admin-sc-top-list">
+        {rows.map((row) => {
+          const tone = roleTone(row.role);
+          const status = statusMeta(row);
+          const totalSeconds = Number(row.total_with_active_seconds ?? row.total_seconds ?? 0);
+          const activeSeconds = Number(row.active_session_seconds ?? 0);
+          const score = Math.max(totalSeconds, Number(row.session_count || 0));
+          const widthPct = Math.max(0, Math.min(100, (score / scoreMax) * 100));
+          return (
+            <div className="admin-sc-top-item" key={`${row.role}-${row.username}`} style={toneStyle(tone)}>
+              <div className="admin-sc-top-head">
+                <div className="admin-sc-top-user">
+                  <span className="admin-sc-top-name">{row.username}</span>
+                  <span className="admin-sc-top-role">{roleLabel(row.role)}</span>
+                  <span className={`admin-sc-top-status ${status.className}`}>{status.label}</span>
+                </div>
+                <div className="admin-sc-top-meta">
+                  <span>{formatDuration(totalSeconds)}</span>
+                  <span>会话 {formatCount(row.session_count)}</span>
+                </div>
+              </div>
+              <div className="admin-sc-top-track" aria-hidden="true">
+                <div className="admin-sc-top-fill" style={{ width: `${widthPct}%` }} />
+              </div>
+              <div className="admin-sc-top-foot">
+                <span>最近活动 {formatDateTime(row.last_activity || row.last_seen_at)}</span>
+                {activeSeconds > 0 ? <span>当前会话已进行 {formatDuration(activeSeconds)}</span> : <span>当前无活跃会话</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+export function buildDurationModels(progressRows, filters, coursePayload) {
+  const sourceRows = enrichProgressRowsWithExperimentInfo(progressRows, coursePayload);
   const normalizedFilters = filters || {};
   const optionMap = {
     courses: new Map(),
@@ -316,7 +582,7 @@ function buildDurationModels(progressRows, filters) {
 
   sourceRows.forEach((row) => {
     putOption(optionMap.courses, row?.course_name, row?.course_name);
-    putOption(optionMap.experiments, row?.experiment_id, getExperimentLabel(row));
+    putOption(optionMap.experiments, row?.experiment_id, getExperimentAxisLabel(row));
     putOption(optionMap.classes, row?.class_name, row?.class_name);
     putOption(optionMap.students, row?.student_id, getStudentLabel(row));
   });
@@ -334,45 +600,6 @@ function buildDurationModels(progressRows, filters) {
     .map((row) => Number(row.duration_seconds))
     .filter((value) => Number.isFinite(value) && value >= 0);
   const durationTotal = durationValues.reduce((sum, value) => sum + value, 0);
-
-  const groupBy = (keyGetter, labelGetter, subLabelGetter) => {
-    const groups = new Map();
-    completedRows.forEach((row) => {
-      const key = keyGetter(row);
-      if (!key) return;
-      if (!groups.has(key)) {
-        groups.set(key, {
-          key,
-          label: labelGetter(row),
-          subLabel: subLabelGetter(row),
-          total: 0,
-          count: 0,
-        });
-      }
-      const item = groups.get(key);
-      item.total += Number(row.duration_seconds || 0);
-      item.count += 1;
-    });
-    return Array.from(groups.values());
-  };
-
-  const experimentAverages = groupBy(
-    (row) => normalizeText(row?.experiment_id) || getExperimentLabel(row),
-    getExperimentLabel,
-    (row) => normalizeText(row?.course_name) || '未归属课程',
-  )
-    .map((item) => ({ ...item, value: item.count > 0 ? item.total / item.count : 0 }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 10);
-
-  const studentTotals = groupBy(
-    (row) => normalizeText(row?.student_id) || getStudentLabel(row),
-    getStudentLabel,
-    (row) => normalizeText(row?.class_name) || '未分班',
-  )
-    .map((item) => ({ ...item, value: item.total }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 10);
 
   const latestCellRows = new Map();
   const studentMap = new Map();
@@ -395,7 +622,7 @@ function buildDurationModels(progressRows, filters) {
     if (!experimentMap.has(experimentId)) {
       experimentMap.set(experimentId, {
         value: experimentId,
-        label: getExperimentLabel(row),
+        label: getExperimentAxisLabel(row),
         subLabel: normalizeText(row?.course_name),
       });
     }
@@ -409,7 +636,12 @@ function buildDurationModels(progressRows, filters) {
   const sortByLabel = (items) => [...items].sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
   const students = sortByLabel(Array.from(studentMap.values())).slice(0, 30);
   const experiments = sortByLabel(Array.from(experimentMap.values())).slice(0, 20);
-  const maxMinutes = Math.max(1, ...Array.from(latestCellRows.values()).filter(isCompletedDurationRow).map((row) => Math.ceil(Number(row.duration_seconds || 0) / 60)));
+  const maxMinutes = Math.max(
+    1,
+    ...Array.from(latestCellRows.values())
+      .filter(isCompletedDurationRow)
+      .map((row) => Math.ceil(Number(row.duration_seconds || 0) / 60))
+  );
   const lowMax = Math.max(1, Math.ceil(maxMinutes * 0.33));
   const mediumMax = Math.max(lowMax + 1, Math.ceil(maxMinutes * 0.66));
   const heatmapData = [];
@@ -422,11 +654,10 @@ function buildDurationModels(progressRows, filters) {
         value: [xIndex, yIndex, minutes],
         meta: {
           student: student.label,
-          experiment: experiment.label,
+          experiment: row ? getCourseStudentLabel(row) : `${experiment.label}-${student.value}`,
           startTime: row?.start_time,
           submitTime: row?.submit_time,
           duration: valid ? Number(row.duration_seconds || 0) : null,
-          status: row?.duration_status || 'none',
         },
       });
     });
@@ -440,15 +671,12 @@ function buildDurationModels(progressRows, filters) {
       students: sortByLabel(Array.from(optionMap.students.values())),
     },
     filteredRows,
-    completedRows,
     summary: {
       count: durationValues.length,
       average: durationValues.length > 0 ? durationTotal / durationValues.length : 0,
       max: durationValues.length > 0 ? Math.max(...durationValues) : 0,
       min: durationValues.length > 0 ? Math.min(...durationValues) : 0,
     },
-    experimentAverages,
-    studentTotals,
     students,
     experiments,
     heatmapData,
@@ -689,6 +917,7 @@ function AdminStatsCenter({ username }) {
       const classRows = Array.isArray(classRes?.data) ? classRes.data : [];
       const visibleStudentCount = Number(studentRes?.data?.total ?? 0);
       const fetchedProgressRows = Array.isArray(progressRes?.data) ? progressRes.data : [];
+      const enrichedProgressRows = enrichProgressRowsWithExperimentInfo(fetchedProgressRows, courseRes?.data);
       const activeStudentCount = new Set(
         fetchedProgressRows
           .map((item) => normalizeText(item?.student_id || item?.username))
@@ -699,7 +928,7 @@ function AdminStatsCenter({ username }) {
       const completionRate = activityCount > 0 ? (completedActivityCount / activityCount) * 100 : 0;
       const courseStats = summarizeCourseStatsPayload(courseRes?.data);
 
-      setProgressRows(fetchedProgressRows);
+      setProgressRows(enrichedProgressRows);
       setCoreStats({
         classCount: classRows.length,
         visibleStudentCount,
@@ -771,227 +1000,133 @@ function AdminStatsCenter({ username }) {
   const studentDurationSeconds = Number(
     usageMonitor?.summary?.student_total_duration_seconds ?? studentUsage.total_duration_with_active_seconds ?? 0
   );
+  const usageUsers = Array.isArray(usageMonitor?.users) ? usageMonitor.users : [];
+  const teacherTracked = Number(teacherUsage.tracked_users ?? 0);
+  const studentTracked = Number(studentUsage.tracked_users ?? 0);
 
   const durationModels = useMemo(
     () => buildDurationModels(progressRows, durationFilters),
     [progressRows, durationFilters]
   );
 
-  const inProgressCount = progressRows.filter(isInProgressRow).length;
-  const notStartedCount = Math.max(0, coreStats.activityCount - coreStats.completedActivityCount - inProgressCount);
+  const publishRate = coreStats.experimentCount > 0
+    ? (coreStats.publishedExperimentCount / coreStats.experimentCount) * 100
+    : 0;
   const activeStudentRate = coreStats.visibleStudentCount > 0
     ? (coreStats.activeStudentCount / coreStats.visibleStudentCount) * 100
     : 0;
-  const averageExperimentDuration = durationModels.summary.count > 0 ? durationModels.summary.average : 0;
+  const teacherOnlineRate = teacherTracked > 0 ? (teacherActive / teacherTracked) * 100 : 0;
+  const studentOnlineRate = studentTracked > 0 ? (studentActive / studentTracked) * 100 : 0;
+  const teacherAvgSessionSeconds = teacherSessionCount > 0 ? teacherDurationSeconds / teacherSessionCount : 0;
+  const studentAvgSessionSeconds = studentSessionCount > 0 ? studentDurationSeconds / studentSessionCount : 0;
+  const activeUsersTotal = teacherActive + studentActive;
+  const trackedUsersTotal = teacherTracked + studentTracked;
+  const activeUsersRate = trackedUsersTotal > 0 ? (activeUsersTotal / trackedUsersTotal) * 100 : 0;
 
-  const metrics = [
+  const cards = [
+    { code: 'CL', icon: 'grid', tone: 'blue', label: '班级数', value: formatCount(coreStats.classCount), note: '当前可管理的班级数量' },
+    { code: 'ST', icon: 'users', tone: 'cyan', label: '可见学生', value: formatCount(coreStats.visibleStudentCount), note: '用户管理模块中可见学生总数' },
+    { code: 'AS', icon: 'user-active', tone: 'green', label: '活跃学生', value: formatCount(coreStats.activeStudentCount), note: '基于进度记录去重后的学生数' },
+    { code: 'CR', icon: 'book', tone: 'blue', label: '课程总数', value: formatCount(coreStats.courseCount), note: '当前教师可见课程数量' },
+    { code: 'EX', icon: 'flask', tone: 'green', label: '实验总数', value: formatCount(coreStats.experimentCount), note: '全部课程下实验总量' },
+    { code: 'PB', icon: 'rocket', tone: 'amber', label: '已发布实验', value: formatCount(coreStats.publishedExperimentCount), note: '处于发布状态的实验数量' },
+    { code: 'AC', icon: 'activity', tone: 'violet', label: '学习活动', value: formatCount(coreStats.activityCount), note: '学生进度记录总条数' },
+    { code: 'RT', icon: 'check-circle', tone: 'pink', label: '完成率', value: formatPercent(coreStats.completionRate), note: `已完成 ${formatCount(coreStats.completedActivityCount)} / ${formatCount(coreStats.activityCount)}` },
+    { code: 'TU', icon: 'monitor', tone: 'blue', label: '在用教师', value: formatCount(teacherActive), note: 'Jupyter 当前在线/启动中的教师' },
+    { code: 'SU', icon: 'monitor', tone: 'green', label: '在用学生', value: formatCount(studentActive), note: 'Jupyter 当前在线/启动中的学生' },
+    { code: 'TC', icon: 'repeat', tone: 'slate', label: '教师使用次数', value: formatCount(teacherSessionCount), note: 'Jupyter 教师会话启动次数' },
+    { code: 'SC', icon: 'repeat', tone: 'violet', label: '学生使用次数', value: formatCount(studentSessionCount), note: 'Jupyter 学生会话启动次数' },
+    { code: 'TT', icon: 'clock', tone: 'blue', label: '教师使用时长', value: formatDuration(teacherDurationSeconds), note: 'Jupyter 教师累计使用时长' },
+    { code: 'STM', icon: 'clock', tone: 'green', label: '学生使用时长', value: formatDuration(studentDurationSeconds), note: 'Jupyter 学生累计使用时长' },
+  ];
+
+  const ratioMetrics = [
     {
-      key: 'students',
-      icon: 'users',
-      tone: 'blue',
-      label: '可见学生',
-      value: formatCount(coreStats.visibleStudentCount),
-      note: `活跃 ${formatCount(coreStats.activeStudentCount)} 人`,
-      percent: activeStudentRate,
-    },
-    {
-      key: 'active',
-      icon: 'activity',
-      tone: 'green',
-      label: '活跃学生',
-      value: formatCount(coreStats.activeStudentCount),
-      note: `覆盖率 ${formatPercent(activeStudentRate)}`,
-      percent: activeStudentRate,
-    },
-    {
-      key: 'courses',
-      icon: 'book',
-      tone: 'blue',
-      label: '课程数',
-      value: formatCount(coreStats.courseCount),
-      note: `已发布实验 ${formatCount(coreStats.publishedExperimentCount)}`,
-      percent: coreStats.experimentCount > 0 ? (coreStats.publishedExperimentCount / coreStats.experimentCount) * 100 : 0,
-    },
-    {
-      key: 'experiments',
-      icon: 'flask',
-      tone: 'green',
-      label: '实验数',
-      value: formatCount(coreStats.experimentCount),
-      note: `学习记录 ${formatCount(coreStats.activityCount)}`,
-      percent: 100,
-    },
-    {
-      key: 'completion',
-      icon: 'check',
-      tone: 'pink',
-      label: '完成率',
-      value: formatPercent(coreStats.completionRate),
-      note: `${formatCount(coreStats.completedActivityCount)} / ${formatCount(coreStats.activityCount)}`,
+      key: 'completion-rate',
+      label: '学习完成率',
       percent: coreStats.completionRate,
+      valueText: formatPercent(coreStats.completionRate),
+      note: `完成记录 ${formatCount(coreStats.completedActivityCount)} / ${formatCount(coreStats.activityCount)}`,
+      color: '#2f84c8',
     },
     {
-      key: 'duration',
-      icon: 'clock',
-      tone: 'orange',
-      label: '平均实验用时',
-      value: durationModels.summary.count > 0 ? formatDuration(averageExperimentDuration) : '-',
-      note: `完成记录 ${formatCount(durationModels.summary.count)} 条`,
-      percent: durationModels.summary.count > 0 ? 100 : 0,
+      key: 'publish-rate',
+      label: '实验发布率',
+      percent: publishRate,
+      valueText: formatPercent(publishRate),
+      note: `已发布实验 ${formatCount(coreStats.publishedExperimentCount)} / ${formatCount(coreStats.experimentCount)}`,
+      color: '#ef9f2f',
+    },
+    {
+      key: 'active-student-rate',
+      label: '学生活跃覆盖率',
+      percent: activeStudentRate,
+      valueText: formatPercent(activeStudentRate),
+      note: `活跃学生 ${formatCount(coreStats.activeStudentCount)} / ${formatCount(coreStats.visibleStudentCount)}`,
+      color: '#37b06e',
+    },
+    {
+      key: 'teacher-online-rate',
+      label: '教师在线率（Jupyter）',
+      percent: teacherOnlineRate,
+      valueText: formatPercent(teacherOnlineRate),
+      note: teacherTracked > 0 ? `在线教师 ${formatCount(teacherActive)} / ${formatCount(teacherTracked)}` : '暂无教师 Jupyter 使用记录',
+      color: '#7a6be8',
+    },
+    {
+      key: 'student-online-rate',
+      label: '学生在线率（Jupyter）',
+      percent: studentOnlineRate,
+      valueText: formatPercent(studentOnlineRate),
+      note: studentTracked > 0 ? `在线学生 ${formatCount(studentActive)} / ${formatCount(studentTracked)}` : '暂无学生 Jupyter 使用记录',
+      color: '#2aa6b8',
     },
   ];
 
-  const completionOption = useMemo(() => ({
-    ...buildOptionBase(),
-    tooltip: { ...buildOptionBase().tooltip, trigger: 'item', formatter: '{b}<br/>{c} 条 ({d}%)' },
-    legend: {
-      bottom: 0,
-      icon: 'circle',
-      itemWidth: 8,
-      itemHeight: 8,
-      textStyle: { color: CHART_COLORS.muted, fontSize: 11 },
+  const usageCompareGroups = [
+    {
+      key: 'online-users',
+      label: '当前在线人数',
+      teacherValue: teacherActive,
+      studentValue: studentActive,
+      formatter: formatCount,
     },
-    series: [{
-      name: '学习完成',
-      type: 'pie',
-      radius: ['54%', '74%'],
-      center: ['50%', '43%'],
-      avoidLabelOverlap: true,
-      label: {
-        formatter: '{b}\n{d}%',
-        color: CHART_COLORS.text,
-        fontSize: 12,
-      },
-      labelLine: { length: 8, length2: 6 },
-      itemStyle: { borderColor: '#fff', borderWidth: 2 },
-      data: [
-        { value: coreStats.completedActivityCount, name: '已完成', itemStyle: { color: CHART_COLORS.green } },
-        { value: inProgressCount, name: '进行中', itemStyle: { color: CHART_COLORS.orange } },
-        { value: notStartedCount, name: '未开始', itemStyle: { color: '#cbd5e1' } },
-      ],
-    }],
-  }), [coreStats.completedActivityCount, inProgressCount, notStartedCount]);
+    {
+      key: 'session-count',
+      label: '累计会话次数',
+      teacherValue: teacherSessionCount,
+      studentValue: studentSessionCount,
+      formatter: formatCount,
+    },
+    {
+      key: 'duration-hours',
+      label: '累计使用时长',
+      teacherValue: teacherDurationSeconds,
+      studentValue: studentDurationSeconds,
+      formatter: formatHours,
+    },
+  ];
 
-  const usageCompareOption = useMemo(() => ({
-    ...buildOptionBase(),
-    tooltip: {
-      ...buildOptionBase().tooltip,
-      trigger: 'axis',
-      axisPointer: { type: 'shadow' },
-      formatter: (params) => params.map((item) => {
-        const isDuration = item.axisValue.includes('时长');
-        const valueText = isDuration ? `${Number(item.value || 0).toFixed(1)}小时` : formatCount(item.value);
-        return `${item.marker}${item.seriesName}：${valueText}`;
-      }).join('<br/>'),
-    },
-    legend: {
-      top: 0,
-      right: 0,
-      icon: 'roundRect',
-      textStyle: { color: CHART_COLORS.muted, fontSize: 11 },
-    },
-    grid: { left: 42, right: 18, top: 46, bottom: 34 },
-    xAxis: {
-      type: 'category',
-      data: ['在线人数', '会话次数', '累计时长'],
-      axisTick: { show: false },
-      axisLine: { lineStyle: { color: CHART_COLORS.grid } },
-      axisLabel: { color: CHART_COLORS.muted, fontSize: 11 },
-    },
-    yAxis: {
-      type: 'value',
-      splitLine: { lineStyle: { color: CHART_COLORS.grid, type: 'dashed' } },
-      axisLabel: { color: CHART_COLORS.muted, fontSize: 11 },
-    },
-    series: [
-      {
-        name: '教师',
-        type: 'bar',
-        barMaxWidth: 24,
-        itemStyle: { color: CHART_COLORS.blue, borderRadius: [6, 6, 0, 0] },
-        data: [teacherActive, teacherSessionCount, Number((teacherDurationSeconds / 3600).toFixed(1))],
-      },
-      {
-        name: '学生',
-        type: 'bar',
-        barMaxWidth: 24,
-        itemStyle: { color: CHART_COLORS.green, borderRadius: [6, 6, 0, 0] },
-        data: [studentActive, studentSessionCount, Number((studentDurationSeconds / 3600).toFixed(1))],
-      },
-    ],
-  }), [studentActive, studentDurationSeconds, studentSessionCount, teacherActive, teacherDurationSeconds, teacherSessionCount]);
+  const usageCompareFooters = [
+    { key: 'teacher-avg', label: '教师平均单次时长', value: formatDuration(teacherAvgSessionSeconds) },
+    { key: 'student-avg', label: '学生平均单次时长', value: formatDuration(studentAvgSessionSeconds) },
+    { key: 'all-active', label: '当前活跃总人数', value: `${formatCount(activeUsersTotal)}（覆盖率 ${formatPercent(activeUsersRate)}）` },
+  ];
 
-  const experimentDurationOption = useMemo(() => {
-    const rows = [...durationModels.experimentAverages].reverse();
-    return {
-      ...buildOptionBase(),
-      tooltip: {
-        ...buildOptionBase().tooltip,
-        trigger: 'axis',
-        axisPointer: { type: 'shadow' },
-        formatter: (params) => {
-          const item = params?.[0];
-          const row = rows[item?.dataIndex] || {};
-          return `${item?.marker || ''}${row.label || '-'}<br/>平均用时：${formatDuration(row.value)}<br/>完成记录：${formatCount(row.count)}`;
-        },
-      },
-      grid: { left: 112, right: 24, top: 18, bottom: 24 },
-      xAxis: {
-        type: 'value',
-        splitLine: { lineStyle: { color: CHART_COLORS.grid, type: 'dashed' } },
-        axisLabel: { color: CHART_COLORS.muted, fontSize: 11, formatter: (value) => `${Math.round(value / 60)}分` },
-      },
-      yAxis: {
-        type: 'category',
-        data: rows.map((item) => item.label),
-        axisTick: { show: false },
-        axisLine: { lineStyle: { color: CHART_COLORS.grid } },
-        axisLabel: { color: CHART_COLORS.muted, fontSize: 11, overflow: 'truncate', width: 100 },
-      },
-      series: [{
-        type: 'bar',
-        data: rows.map((item) => item.value),
-        barMaxWidth: 18,
-        itemStyle: { color: CHART_COLORS.orange, borderRadius: [0, 6, 6, 0] },
-      }],
-    };
-  }, [durationModels.experimentAverages]);
-
-  const studentDurationOption = useMemo(() => {
-    const rows = [...durationModels.studentTotals].reverse();
-    return {
-      ...buildOptionBase(),
-      tooltip: {
-        ...buildOptionBase().tooltip,
-        trigger: 'axis',
-        axisPointer: { type: 'shadow' },
-        formatter: (params) => {
-          const item = params?.[0];
-          const row = rows[item?.dataIndex] || {};
-          return `${item?.marker || ''}${row.label || '-'}<br/>累计用时：${formatDuration(row.value)}<br/>完成实验：${formatCount(row.count)}`;
-        },
-      },
-      grid: { left: 96, right: 24, top: 18, bottom: 24 },
-      xAxis: {
-        type: 'value',
-        splitLine: { lineStyle: { color: CHART_COLORS.grid, type: 'dashed' } },
-        axisLabel: { color: CHART_COLORS.muted, fontSize: 11, formatter: (value) => `${Math.round(value / 3600)}h` },
-      },
-      yAxis: {
-        type: 'category',
-        data: rows.map((item) => item.label),
-        axisTick: { show: false },
-        axisLine: { lineStyle: { color: CHART_COLORS.grid } },
-        axisLabel: { color: CHART_COLORS.muted, fontSize: 11, overflow: 'truncate', width: 82 },
-      },
-      series: [{
-        type: 'bar',
-        data: rows.map((item) => item.value),
-        barMaxWidth: 18,
-        itemStyle: { color: CHART_COLORS.violet, borderRadius: [0, 6, 6, 0] },
-      }],
-    };
-  }, [durationModels.studentTotals]);
+  const topUsers = usageUsers
+    .filter((row) => ['teacher', 'student'].includes(String(row?.role || '').toLowerCase()))
+    .sort((a, b) => {
+      const aOnline = (a?.server_running || a?.server_pending) ? 1 : 0;
+      const bOnline = (b?.server_running || b?.server_pending) ? 1 : 0;
+      if (bOnline !== aOnline) return bOnline - aOnline;
+      const aSeconds = Number(a?.total_with_active_seconds ?? a?.total_seconds ?? 0);
+      const bSeconds = Number(b?.total_with_active_seconds ?? b?.total_seconds ?? 0);
+      if (bSeconds !== aSeconds) return bSeconds - aSeconds;
+      const aSessions = Number(a?.session_count || 0);
+      const bSessions = Number(b?.session_count || 0);
+      return bSessions - aSessions;
+    })
+    .slice(0, 8);
 
   const isRefreshing = loadingCore || loadingUsage;
   const updatedAt = usageMonitor?.generated_at || coreStats.updatedAt;
@@ -1002,7 +1137,7 @@ function AdminStatsCenter({ username }) {
       <div className="admin-sc-head">
         <div className="admin-sc-title">
           <h2>数据统计中心</h2>
-          <p>面向教师的教学运营看板，聚合课程、实验完成、Jupyter 使用与学生实验用时。</p>
+          <p>面向教师的教学运营看板，聚合课程、实验完成与 Jupyter 使用。</p>
         </div>
         <div className="admin-sc-tools">
           <span className="admin-sc-pill">{scopeText}</span>
@@ -1018,42 +1153,40 @@ function AdminStatsCenter({ username }) {
 
       {errorMessage ? <div className="admin-sc-error">{errorMessage}</div> : null}
 
-      <div className="admin-sc-metrics" role="list" aria-label="核心统计指标">
-        {metrics.map((item) => <CoreMetricCard item={item} key={item.key} />)}
+      <div className="admin-sc-row" role="list" aria-label="管理员统计卡片">
+        {cards.map((item) => (
+          <article className="admin-sc-card" key={item.code} role="listitem" style={toneStyle(item.tone)}>
+            <div className="admin-sc-badge">
+              <StatIcon name={item.icon} />
+            </div>
+            <div className="admin-sc-body">
+              <div className="admin-sc-card-head">
+                <h3>{item.label}</h3>
+                <span className="admin-sc-code">{item.code}</span>
+              </div>
+              <div className="admin-sc-value">{item.value}</div>
+              <p>{item.note}</p>
+            </div>
+          </article>
+        ))}
       </div>
 
-      <div className="admin-sc-dashboard-grid">
-        <EChartPanel
-          title="学习完成分布"
-          subtitle="按学生实验进度记录统计完成、进行中与未开始"
-          option={completionOption}
-          empty={coreStats.activityCount === 0}
-          emptyText="暂无学习进度记录"
-          height={300}
+      <div className="admin-sc-charts">
+        <MetricMeterPanel
+          title="关键比率指标"
+          subtitle="用于判断教学资源发布、学习完成与 Jupyter 实时活跃覆盖情况"
+          metrics={ratioMetrics}
         />
-        <EChartPanel
-          title="教师 / 学生 Jupyter 使用对比"
-          subtitle={`教师累计 ${formatHours(teacherDurationSeconds)}，学生累计 ${formatHours(studentDurationSeconds)}`}
-          option={usageCompareOption}
-          empty={teacherSessionCount + studentSessionCount + teacherActive + studentActive === 0}
-          emptyText="暂无 Jupyter 使用记录"
-          height={300}
+        <CompareBarsPanel
+          title="老师 / 学生使用对比"
+          subtitle="对比当前在线、累计会话次数与累计使用时长（Jupyter 会话口径）"
+          groups={usageCompareGroups}
+          footerStats={usageCompareFooters}
         />
-        <EChartPanel
-          title="实验平均用时 Top"
-          subtitle="按完成记录的平均自然耗时排序"
-          option={experimentDurationOption}
-          empty={durationModels.experimentAverages.length === 0}
-          emptyText="暂无完成实验用时"
-          height={320}
-        />
-        <EChartPanel
-          title="学生累计用时排行"
-          subtitle="按已完成实验的累计自然耗时排序"
-          option={studentDurationOption}
-          empty={durationModels.studentTotals.length === 0}
-          emptyText="暂无学生完成用时"
-          height={320}
+        <TopUsersPanel
+          title="Jupyter 活跃用户 Top 8"
+          subtitle="优先展示当前在线用户，其次按累计使用时长排序"
+          rows={topUsers}
         />
       </div>
 

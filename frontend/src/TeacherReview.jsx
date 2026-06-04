@@ -94,7 +94,25 @@ function getPdfBadgeStatus(pdfList) {
     return '未查看';
 }
 
-function TeacherReview({ username, submissions, loading, onGrade }) {
+function normalizeDisplayText(value) {
+    return value === undefined || value === null ? '' : String(value).trim();
+}
+
+export function buildSubmissionExperimentLabel(submission, courseMap = {}) {
+    const experimentId = normalizeDisplayText(submission?.experiment_id);
+    const studentId = normalizeDisplayText(submission?.student_id);
+    const experiment = experimentId ? courseMap?.[experimentId] : null;
+    const courseName =
+        normalizeDisplayText(experiment?.course_display_name) ||
+        normalizeDisplayText(experiment?.course_name) ||
+        normalizeDisplayText(experiment?.title) ||
+        experimentId ||
+        '-';
+
+    return studentId ? `${courseName}-${studentId}` : courseName;
+}
+
+function TeacherReview({ username, submissions, loading, courseMap = {}, onGrade, onReturn }) {
     const [selectedSubmission, setSelectedSubmission] = useState(null);
 
     if (loading) return <div className="loading">加载中...</div>;
@@ -112,7 +130,7 @@ function TeacherReview({ username, submissions, loading, onGrade }) {
                 <table>
                     <thead>
                         <tr>
-                            <th>实验ID</th>
+                            <th>课程名称-学号</th>
                             <th>学生ID</th>
                             <th>状态</th>
                             <th>提交时间</th>
@@ -126,9 +144,10 @@ function TeacherReview({ username, submissions, loading, onGrade }) {
                             const pdfAttachments = sub.pdf_attachments || [];
                             const badgeStatus = getPdfBadgeStatus(pdfAttachments);
                             const summaryText = getPdfSummary(pdfAttachments);
+                            const submissionLabel = buildSubmissionExperimentLabel(sub, courseMap);
                             return (
                             <tr key={sub.id}>
-                                <td>{sub.experiment_id}</td>
+                                <td>{submissionLabel}</td>
                                 <td>{sub.student_id}</td>
                                 <td>
                                     <span className={`status-badge ${sub.status === '已评分' ? 'success' : 'warning'}`}>
@@ -164,12 +183,23 @@ function TeacherReview({ username, submissions, loading, onGrade }) {
                                 <td>{sub.score !== null ? sub.score : '-'}</td>
                                 <td>
                                     {sub.status === '已提交' || sub.status === '已评分' ? (
+                                        <>
+                                        {typeof onReturn === 'function' ? (
+                                            <button
+                                                className="btn btn-small btn-secondary"
+                                                onClick={() => onReturn(sub.id)}
+                                                style={{ marginRight: '8px' }}
+                                            >
+                                                {'\u6253\u56de'}
+                                            </button>
+                                        ) : null}
                                         <button
                                             className="btn btn-small"
                                             onClick={() => setSelectedSubmission(sub)}
                                         >
                                             {sub.status === '已评分' ? '重新评分' : '评分'}
                                         </button>
+                                        </>
                                     ) : '-'}
                                 </td>
                             </tr>
@@ -191,13 +221,14 @@ function TeacherReview({ username, submissions, loading, onGrade }) {
                     onClose={() => setSelectedSubmission(null)}
                     onGrade={onGrade}
                     username={username}
+                    courseMap={courseMap}
                 />
             )}
         </div>
     );
 }
 
-function GradingModal({ submission, onClose, onGrade, username }) {
+function GradingModal({ submission, onClose, onGrade, username, courseMap = {} }) {
     const [score, setScore] = useState(submission.score || 80);
     const [comment, setComment] = useState(submission.teacher_comment || '');
     const [pdfList, setPdfList] = useState(submission.pdf_attachments || []);
@@ -213,6 +244,7 @@ function GradingModal({ submission, onClose, onGrade, username }) {
     const selectedPdfUrl = selectedPdfId
         ? `${API_BASE_URL}/api/student-submissions/${selectedPdfId}/download?teacher_username=${encodeURIComponent(username)}`
         : null;
+    const submissionLabel = buildSubmissionExperimentLabel(submission, courseMap);
 
     const replacePdfItem = (updatedItem) => {
         setPdfList((prev) => prev.map((item) => (item.id === updatedItem.id ? updatedItem : item)));
@@ -287,7 +319,7 @@ function GradingModal({ submission, onClose, onGrade, username }) {
 
                 <div className="modal-body">
                     <div style={{ marginBottom: '20px', padding: '15px', background: '#f7f9fc', border: '1px solid #e5e9f2', borderRadius: '8px' }}>
-                        <p><strong>实验ID:</strong> {submission.experiment_id}</p>
+                        <p><strong>课程名称-学号:</strong> {submissionLabel}</p>
                         <p><strong>学生ID:</strong> {submission.student_id}</p>
                         <p><strong>PDF报告:</strong></p>
                         {pdfList.length > 0 ? (

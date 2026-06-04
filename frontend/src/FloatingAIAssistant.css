@@ -136,6 +136,8 @@
     display: block;
     color: #1d2842;
     font-size: 15px;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
 }
 
 .floating-ai-title p {
@@ -231,8 +233,8 @@
 }
 
 .floating-ai-avatar.ai {
-    border-radius: 7px;
-    border: 0;
+    border-radius: 50%;
+    border: 1px solid #d7deef;
     background: #ffffff;
     box-shadow: none;
 }

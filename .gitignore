@@ -19,6 +19,8 @@ test_*.py
 *.spec.jsx
 *.spec.ts
 *.spec.tsx
+!tests/
+!tests/test_deeptutor_static_assets_proxy.py
 
 # Node / frontend
 node_modules/

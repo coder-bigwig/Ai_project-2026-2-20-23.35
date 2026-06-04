@@ -146,7 +146,7 @@ function TeacherAIModule({ username }) {
     return (
         <div className="teacher-ai-module">
             <section className="teacher-ai-card">
-                <h2>模型功能模块</h2>
+                <h2>AI功能模块</h2>
                 <p>在教师端统一配置密钥、模型和系统设定，保存后学生端与教师端会使用同一份配置。</p>
 
                 <div className="teacher-ai-form-grid">

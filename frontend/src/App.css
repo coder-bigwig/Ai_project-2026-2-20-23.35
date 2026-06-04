@@ -45,7 +45,9 @@ body {
     font-size: 20px;
     font-weight: 500;
     color: #303133;
+    line-height: 1.35;
     margin: 0;
+    overflow-wrap: anywhere;
 }
 
 .simple-login-form {

@@ -20,7 +20,7 @@ export const DEFAULT_AI_ASSISTANT_CONFIG = {
     chatModel: 'deepseek-chat',
     reasonerModel: 'deepseek-reasoner',
     baseUrl: 'https://api.deepseek.com',
-    systemPrompt: '你是教学创新实践平台小助手。请使用简洁、准确、教学友好的中文回答，优先结合编程实践课程场景给出可执行建议。'
+    systemPrompt: '你是福州理工学院AI编程实践教学平台小助手。请使用简洁、准确、教学友好的中文回答，优先结合编程实践课程场景给出可执行建议。'
 };
 
 function normalizeAIConfig(config) {

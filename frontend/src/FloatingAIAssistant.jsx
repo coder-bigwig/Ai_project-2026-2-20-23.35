@@ -12,7 +12,7 @@ import {
 } from './aiAssistantConfig';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
-const ASSISTANT_AVATAR_URL = '/jupyternaut-avatar.svg';
+const ASSISTANT_AVATAR_URL = '/fit-logo-from-user.jpg';
 
 const POSITION_STORAGE_KEY = 'floating_ai_window_position';
 const SIZE_STORAGE_KEY = 'floating_ai_window_size';
@@ -1515,8 +1515,8 @@ function FloatingAIAssistant() {
                         <div className="floating-ai-title">
                             <img className="floating-ai-default-avatar title" src={ASSISTANT_AVATAR_URL} alt="" aria-hidden="true" />
                             <div>
-                                <strong>{'教学创新实践平台助手'}</strong>
-                                <p>{'教学创新实践助手'}</p>
+                                <strong>{'福州理工学院AI助手'}</strong>
+                                <p>{'AI 编程实训助手'}</p>
                             </div>
                         </div>
                         <div className="floating-ai-actions">

@@ -32,17 +32,19 @@
   margin: 0;
   color: #f6fbff;
   font-size: 22px;
-  line-height: 1;
+  line-height: 1.15;
   font-weight: 700;
   letter-spacing: 0.6px;
+  overflow-wrap: anywhere;
 }
 
 .teacher-lab-brand p {
-  margin: 7px 0 0;
+  margin: 4px 0 0;
   color: rgba(241, 248, 255, 0.88);
   font-size: 12px;
   letter-spacing: 0.7px;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .teacher-lab-user {

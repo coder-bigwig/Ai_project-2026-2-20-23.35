@@ -500,5 +500,23 @@ class SubmissionService:
         return {"message": "评分成功", "score": score}
 
 
+    async def return_submission(self, student_exp_id: str, comment: Optional[str] = None):
+        student_row = await StudentExperimentRepository(self.db).get(student_exp_id)
+        if not student_row:
+            raise HTTPException(status_code=404, detail="student experiment record not found")
+
+        student_row.status = self.main.ExperimentStatus.IN_PROGRESS.value
+        student_row.submit_time = None
+        student_row.score = None
+        if comment is not None:
+            student_row.teacher_comment = comment
+        student_row.updated_at = datetime.now()
+        await self._commit()
+        return {
+            "message": "submission returned",
+            "status": self.main.ExperimentStatus.IN_PROGRESS.value,
+        }
+
+
 def build_submission_service(main_module, db: Optional[AsyncSession] = None) -> SubmissionService:
     return SubmissionService(main_module=main_module, db=db)

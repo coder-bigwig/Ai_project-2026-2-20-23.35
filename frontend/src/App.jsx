@@ -384,7 +384,7 @@ function LoginView({
         <div className="simple-login-container">
             <div className="simple-login-card">
                 <div className="simple-login-header">
-                    <h1>教学创新实践平台</h1>
+                    <h1>福州理工学院AI编程实践教学平台</h1>
                 </div>
 
                 <form onSubmit={handleLogin} className="simple-login-form">

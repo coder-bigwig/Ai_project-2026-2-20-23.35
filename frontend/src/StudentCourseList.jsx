@@ -8,8 +8,8 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 const SELECTED_COURSE_CACHE_KEY = 'studentSelectedCourseKey';
 
 const TEXT = {
-    platformTitle: '教学创新实践平台',
-    platformSubTitle: '学生端 / Teaching Innovation and Practice Platform',
+    platformTitle: '福州理工学院AI编程实践教学平台',
+    platformSubTitle: '学生端 / AI Programming Practice Teaching Platform',
     logout: '\u9000\u51fa',
     deepTutor: 'DeepTutor',
     namePrefix: '\u59d3\u540d',

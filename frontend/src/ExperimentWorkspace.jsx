@@ -10,7 +10,7 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 const JUPYTER_UI_PATCH_INTERVAL_MS = 800;
 const JUPYTER_UI_PATCH_MAX_ATTEMPTS = 60;
 const CODE_SERVER_LOAD_TIMEOUT_MS = 8000;
-const JUPYTER_AI_AVATAR_URL = '/jupyternaut-avatar.svg';
+const JUPYTER_AI_AVATAR_URL = '/fit-logo-from-user.jpg';
 const AVATAR_LOAD_STATUS_BY_URL = new Map();
 const INVALID_AVATAR_TOKENS = new Set(['', 'null', 'undefined', 'none', 'nan', '-', '--', '[object object]']);
 const WORKSPACE_LABELS = {
@@ -273,7 +273,7 @@ function ensureJupyterAiChatStyles(doc) {
 
 #jupyter-ai\\:\\:chat .fit-jai-avatar.fit-jai-avatar-custom {
   background-position: center !important;
-  background-size: cover !important;
+  background-size: contain !important;
   background-repeat: no-repeat !important;
 }
 

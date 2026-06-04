@@ -31,7 +31,7 @@ const TABS = [
   { key: 'users', label: '用户管理', tip: '班级和学生管理', Icon: UserTabIcon },
   { key: 'resources', label: '资源文件', tip: '平台资源管理', Icon: ResourceTabIcon },
   { key: 'profile', label: '个人中心', tip: '账号与安全设置', Icon: ProfileTabIcon },
-  { key: 'ai', label: '模型功能', tip: '模型与密钥配置', Icon: AITabIcon },
+  { key: 'ai', label: 'AI功能', tip: '模型与密钥配置', Icon: AITabIcon },
 ];
 
 const ADMIN_STATS_TAB = {
@@ -323,6 +323,23 @@ function TeacherDashboard({ username, userRole, onLogout }) {
     }
   };
 
+  const handleReturnSubmission = async (submissionId) => {
+    if (!window.confirm('\u786e\u8ba4\u6253\u56de\u8be5\u63d0\u4ea4\uff0c\u5141\u8bb8\u5b66\u751f\u91cd\u65b0\u4fee\u6539\u5e76\u63d0\u4ea4\u5417\uff1f')) {
+      return;
+    }
+
+    try {
+      await axios.post(`${API_BASE_URL}/api/teacher/submissions/${submissionId}/return`, null, {
+        params: { teacher_username: username },
+      });
+      alert('\u5df2\u6253\u56de');
+      await loadSubmissions();
+    } catch (error) {
+      console.error('return submission failed', error);
+      alert(getErrorMessage(error, '\u6253\u56de\u5931\u8d25'));
+    }
+  };
+
   const handleCreateCourse = async (formData) => {
     const payload = {
       name: String(formData.name || '').trim(),
@@ -476,11 +493,23 @@ function TeacherDashboard({ username, userRole, onLogout }) {
   const experiments = useMemo(() => flattenExperiments(courses), [courses]);
   const courseMap = useMemo(() => {
     const map = {};
-    experiments.forEach((exp) => {
-      map[exp.id] = exp;
+    (courses || []).forEach((course) => {
+      const courseDisplayName = String(course?.name || '').trim();
+      (course?.experiments || []).forEach((exp) => {
+        const experimentId = String(exp?.id || '').trim();
+        if (!experimentId) return;
+        map[experimentId] = {
+          ...exp,
+          course_display_name:
+            courseDisplayName ||
+            String(exp?.course_name || '').trim() ||
+            String(exp?.title || '').trim() ||
+            experimentId,
+        };
+      });
     });
     return map;
-  }, [experiments]);
+  }, [courses]);
 
   const courseCount = courses.length;
   const experimentCount = experiments.length;
@@ -597,8 +626,8 @@ function TeacherDashboard({ username, userRole, onLogout }) {
     <div className="teacher-lab-shell">
       <header className="teacher-lab-topbar">
         <div className="teacher-lab-brand">
-          <h1>教学创新实践平台</h1>
-          <p>教师管理端 / Teaching Innovation and Practice Platform</p>
+          <h1>福州理工学院AI编程实践教学平台</h1>
+          <p>教师管理端 / AI Programming Practice Teaching Platform</p>
         </div>
         <div className="teacher-lab-user">
           <span className="teacher-lab-avatar">{(username || 'T').slice(0, 1).toUpperCase()}</span>
@@ -685,7 +714,14 @@ function TeacherDashboard({ username, userRole, onLogout }) {
 
           {activeTab === 'review' ? (
             <div className="teacher-lab-section">
-              <TeacherReview username={username} submissions={submissions} loading={loadingSubmissions} onGrade={handleGrade} />
+              <TeacherReview
+                username={username}
+                submissions={submissions}
+                loading={loadingSubmissions}
+                courseMap={courseMap}
+                onGrade={handleGrade}
+                onReturn={handleReturnSubmission}
+              />
             </div>
           ) : null}
 
