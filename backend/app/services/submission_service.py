@@ -17,6 +17,7 @@ from ..repositories import (
     UserRepository,
 )
 from .identity_service import ensure_teacher_or_admin, normalize_text, resolve_user_role
+from .student_class_alias import class_name_for_teacher
 from .jupyter_start_service import ensure_user_server_running_async
 
 
@@ -64,13 +65,13 @@ class SubmissionService:
             target_student_ids=list(row.target_student_ids or []),
         )
 
-    def _to_student_record(self, row):
+    def _to_student_record(self, row, class_name: str | None = None):
         student_id = row.student_id or row.username
         return self.main.StudentRecord(
             student_id=student_id,
             username=row.username,
             real_name=row.real_name or student_id,
-            class_name=row.class_name or "",
+            class_name=class_name if class_name is not None else row.class_name or "",
             admission_year=row.admission_year or "",
             organization=row.organization or "",
             phone=row.phone or "",
@@ -159,7 +160,10 @@ class SubmissionService:
             raise HTTPException(status_code=404, detail="学生不存在")
 
         experiment = self._to_experiment_model(exp_row)
-        student = self._to_student_record(student_row)
+        student = self._to_student_record(
+            student_row,
+            class_name=class_name_for_teacher(student_row, experiment.created_by),
+        )
         existing = await StudentExperimentRepository(self.db).get_by_student_and_experiment(student_id, experiment_id)
         student_exp = self._to_student_experiment_model(existing) if existing else None
 

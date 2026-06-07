@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..repositories import AttachmentRepository, CourseRepository, ExperimentRepository, UserRepository
 from .identity_service import ensure_teacher_or_admin, normalize_text, resolve_user_role
+from .student_class_alias import class_name_for_teacher
 
 
 class ExperimentService:
@@ -25,13 +26,13 @@ class ExperimentService:
             return value
         return fallback
 
-    def _to_student_record(self, row):
+    def _to_student_record(self, row, class_name: str | None = None):
         student_id = row.student_id or row.username
         return self.main.StudentRecord(
             student_id=student_id,
             username=row.username,
             real_name=row.real_name or student_id,
-            class_name=row.class_name or "",
+            class_name=class_name if class_name is not None else row.class_name or "",
             admission_year=row.admission_year or "",
             organization=row.organization or "",
             phone=row.phone or "",
@@ -227,8 +228,17 @@ class ExperimentService:
                 if not student_row:
                     experiments = []
                 else:
-                    student = self._to_student_record(student_row)
-                    experiments = [e for e in experiments if self.main._is_experiment_visible_to_student(e, student)]
+                    experiments = [
+                        e
+                        for e in experiments
+                        if self.main._is_experiment_visible_to_student(
+                            e,
+                            self._to_student_record(
+                                student_row,
+                                class_name=class_name_for_teacher(student_row, e.created_by),
+                            ),
+                        )
+                    ]
 
         if difficulty:
             experiments = [e for e in experiments if e.difficulty == difficulty]

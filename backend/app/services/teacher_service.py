@@ -26,6 +26,7 @@ from ..repositories import (
 )
 from .identity_service import ensure_teacher_or_admin, normalize_text
 from .operation_log_service import append_operation_log
+from .student_class_alias import class_name_for_teacher
 
 
 class TeacherService:
@@ -341,11 +342,14 @@ class TeacherService:
         students = []
         visible_class_names = set()
         for row in student_rows:
+            display_class_name = row.class_name or ""
+            if role != "admin":
+                display_class_name = class_name_for_teacher(row, normalized_teacher)
             student = self.main.StudentRecord(
                 student_id=row.student_id or row.username,
                 username=row.username,
                 real_name=row.real_name or row.username,
-                class_name=row.class_name or "",
+                class_name=display_class_name,
                 admission_year=row.admission_year or "",
                 organization=row.organization or "",
                 phone=row.phone or "",
@@ -357,13 +361,10 @@ class TeacherService:
                 created_at=row.created_at,
                 updated_at=row.updated_at,
             )
-            owner = normalize_text(student.created_by) or class_owner_map.get(normalize_text(student.class_name), "")
+            owner = normalize_text(row.created_by) or class_owner_map.get(normalize_text(row.class_name), "")
             shared_teachers = shared_teachers_for(row)
             if role == "admin" or owner == normalized_teacher or normalized_teacher in shared_teachers:
                 students.append(student)
-                class_name = normalize_text(student.class_name)
-                if class_name:
-                    visible_class_names.add(class_name)
         students.sort(key=lambda item: (item.class_name, item.student_id))
 
         for row in class_rows:

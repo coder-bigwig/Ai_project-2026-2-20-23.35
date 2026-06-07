@@ -34,6 +34,7 @@ from ..repositories import (
     UserRepository,
 )
 from .identity_service import ensure_admin, ensure_teacher_or_admin, normalize_text, resolve_user_role
+from .student_class_alias import class_name_for_teacher, set_class_name_for_teacher
 from .kv_policy_service import (
     default_resource_policy_payload,
     get_kv_json,
@@ -856,30 +857,38 @@ class AdminService:
                 errors.append({"row": row_number, "student_id": student_id, "reason": "class does not exist"})
                 continue
 
-            role_value = await resolve_user_role(self.db, student_id)
-            if role_value in {"teacher", "admin"}:
-                errors.append({"row": row_number, "student_id": student_id, "reason": "student id conflicts with teacher account"})
-                continue
-
             if student_id in file_student_ids:
                 skipped_count += 1
                 errors.append({"row": row_number, "student_id": student_id, "reason": "duplicate student id in system"})
                 continue
 
-            file_student_ids.add(student_id)
             if student_id in existing_student_ids:
+                file_student_ids.add(student_id)
                 existing_row = existing_student_map.get(student_id)
                 if existing_row is not None:
-                    base_extra = existing_row.extra if isinstance(existing_row.extra, dict) else {}
+                    owner = self._student_owner_username(existing_row, {})
                     shared_teachers = self._student_shared_teachers(existing_row)
-                    shared_teachers.add(normalized_teacher)
-                    next_extra = dict(base_extra)
-                    next_extra["shared_teachers"] = sorted(shared_teachers)
-                    existing_row.extra = next_extra
-                    existing_row.updated_at = now
+                    changed = False
+                    if owner != normalized_teacher or normalize_text(existing_row.class_name) != class_name:
+                        changed = set_class_name_for_teacher(existing_row, normalized_teacher, class_name)
+                    if owner != normalized_teacher and normalized_teacher not in shared_teachers:
+                        base_extra = existing_row.extra if isinstance(existing_row.extra, dict) else {}
+                        shared_teachers.add(normalized_teacher)
+                        next_extra = dict(base_extra)
+                        next_extra["shared_teachers"] = sorted(shared_teachers)
+                        existing_row.extra = next_extra
+                        changed = True
+                    if changed:
+                        existing_row.updated_at = now
                 reused_count += 1
                 continue
 
+            role_value = await resolve_user_role(self.db, student_id)
+            if role_value in {"teacher", "admin"}:
+                errors.append({"row": row_number, "student_id": student_id, "reason": "student id conflicts with teacher account"})
+                continue
+
+            file_student_ids.add(student_id)
             success_students.append(
                 {
                     "id": str(uuid.uuid4()),
@@ -898,7 +907,7 @@ class AdminService:
                     "is_active": True,
                     "created_at": now,
                     "updated_at": now,
-                    "extra": {},
+                    "extra": {"teacher_class_names": {normalized_teacher: class_name}},
                 }
             )
 
@@ -968,7 +977,11 @@ class AdminService:
             ]
 
         if normalized_class_name:
-            students = [item for item in students if item.class_name == normalized_class_name]
+            students = [
+                item
+                for item in students
+                if class_name_for_teacher(item, normalized_teacher) == normalized_class_name
+            ]
         if normalized_admission_year:
             students = [
                 item for item in students if self._admission_year(item.admission_year) == normalized_admission_year
@@ -988,7 +1001,7 @@ class AdminService:
                     "student_id": item.student_id,
                     "username": item.username,
                     "real_name": item.real_name,
-                    "class_name": item.class_name,
+                    "class_name": class_name_for_teacher(item, normalized_teacher),
                     "admission_year": self._admission_year(item.admission_year),
                     "admission_year_label": self._format_admission_year_label(item.admission_year),
                     "organization": item.organization,

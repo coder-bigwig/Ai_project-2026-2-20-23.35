@@ -24,6 +24,9 @@ test_*.py
 !tests/test_deeptutor_override_compat.py
 !tests/usage_monitor_events_test.py
 !tests/ai_session_token_test.py
+!tests/test_admin_student_import.py
+!tests/test_student_class_alias_visibility.py
+!tests/teacher_publish_targets_test.py
 
 # Local TLS private keys
 nginx/ssl/*.key

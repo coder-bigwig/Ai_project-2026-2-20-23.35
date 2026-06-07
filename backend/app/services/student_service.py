@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..repositories import AuthUserRepository, ExperimentRepository, StudentExperimentRepository, UserRepository
 from .identity_service import ensure_student_user, normalize_text
+from .student_class_alias import class_name_for_teacher
 
 
 class StudentService:
@@ -24,13 +25,13 @@ class StudentService:
             await self.db.rollback()
             raise HTTPException(status_code=500, detail="学生资料写入失败") from exc
 
-    def _to_student_record(self, row):
+    def _to_student_record(self, row, class_name: str | None = None):
         student_id = row.student_id or row.username
         return self.main.StudentRecord(
             student_id=student_id,
             username=row.username,
             real_name=row.real_name or student_id,
-            class_name=row.class_name or "",
+            class_name=class_name if class_name is not None else row.class_name or "",
             admission_year=row.admission_year or "",
             organization=row.organization or "",
             phone=row.phone or "",
@@ -113,7 +114,11 @@ class StudentService:
         visible_courses = []
         for row in exp_rows:
             exp_model = self._to_experiment_model(row)
-            if self.main._is_experiment_visible_to_student(exp_model, student):
+            student_for_experiment = self._to_student_record(
+                student_row,
+                class_name=class_name_for_teacher(student_row, exp_model.created_by),
+            )
+            if self.main._is_experiment_visible_to_student(exp_model, student_for_experiment):
                 visible_courses.append(exp_model)
 
         se_rows = await StudentExperimentRepository(self.db).list_by_student(student.student_id)
