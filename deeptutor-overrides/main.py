@@ -6,7 +6,6 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from deeptutor.logging import get_logger
 from deeptutor.services.path_service import get_path_service
 from deeptutor.user_context import (
     UserContextError,
@@ -17,7 +16,7 @@ from deeptutor.user_context import (
 )
 
 # Note: Don't set service_prefix here - start_web.py already adds [Backend] prefix
-logger = get_logger("API")
+logger = logging.getLogger("deeptutor.api")
 
 
 class _SuppressWsNoise(logging.Filter):
@@ -249,7 +248,6 @@ from deeptutor.api.routers import (
     sessions,
     settings,
     skills,
-    solve,
     system,
     tutorbot,
     unified_ws,
@@ -257,7 +255,6 @@ from deeptutor.api.routers import (
 )
 
 # Include routers
-app.include_router(solve.router, prefix="/api/v1", tags=["solve"])
 app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
 app.include_router(question.router, prefix="/api/v1/question", tags=["question"])
 app.include_router(knowledge.router, prefix="/api/v1/knowledge", tags=["knowledge"])
@@ -277,6 +274,10 @@ app.include_router(plugins_api.router, prefix="/api/v1/plugins", tags=["plugins"
 app.include_router(agent_config.router, prefix="/api/v1/agent-config", tags=["agent-config"])
 app.include_router(vision_solver.router, prefix="/api/v1", tags=["vision-solver"])
 app.include_router(tutorbot.router, prefix="/api/v1/tutorbot", tags=["tutorbot"])
+
+@app.get("/api/v1/agent-config", tags=["agent-config"])
+async def get_agent_config_root():
+    return agent_config.AGENT_REGISTRY
 
 # Unified WebSocket endpoint
 app.include_router(unified_ws.router, prefix="/api/v1", tags=["unified-ws"])

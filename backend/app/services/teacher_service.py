@@ -111,6 +111,18 @@ class TeacherService:
         return await ensure_teacher_or_admin(self.db, username)
 
     @staticmethod
+    def _progress_duration_payload(start_time, submit_time) -> dict:
+        if start_time is not None and submit_time is not None:
+            try:
+                seconds = max(0, int((submit_time - start_time).total_seconds()))
+            except Exception:
+                seconds = None
+            return {"duration_status": "completed", "duration_seconds": seconds}
+        if start_time is not None:
+            return {"duration_status": "in_progress", "duration_seconds": None}
+        return {"duration_status": "not_started", "duration_seconds": None}
+
+    @staticmethod
     def _resource_preview_mode(file_type: str) -> str:
         normalized = normalize_text(file_type).lower().lstrip(".")
         if normalized == "pdf":
@@ -834,6 +846,7 @@ class TeacherService:
                     "status": status_value,
                     "start_time": row.start_time,
                     "submit_time": row.submit_time,
+                    **self._progress_duration_payload(row.start_time, row.submit_time),
                     "score": row.score,
                 }
             )

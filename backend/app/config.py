@@ -11,7 +11,7 @@ def _parse_int_env(name: str, default: int) -> int:
         return default
 
 
-APP_TITLE = "教学创新实践平台 - 实验管理API"
+APP_TITLE = "福州理工学院AI编程实践教学平台 - 实验管理API"
 
 JUPYTERHUB_INTERNAL_URL = os.getenv("JUPYTERHUB_INTERNAL_URL", "http://jupyterhub:8000").rstrip("/")
 # Prefer same-origin reverse-proxy path to avoid cross-origin cookie/WebSocket auth mismatches.
@@ -64,7 +64,7 @@ DEFAULT_AI_SHARED_CONFIG = {
     "chat_model": "deepseek-chat",
     "reasoner_model": "deepseek-reasoner",
     "base_url": "https://api.deepseek.com",
-    "system_prompt": "你是教学创新实践平台小助手。请使用简洁、准确、教学友好的中文回答。"
+    "system_prompt": "你是福州理工学院AI编程实践教学平台小助手。请使用简洁、准确、教学友好的中文回答。"
 }
 AI_RESPONSE_STYLE_RULES = (
     "回答规则：先给结论，再给关键依据或步骤；"
@@ -90,6 +90,11 @@ AI_CONTEXT_MAX_HISTORY_MESSAGES = max(10, int(os.getenv("AI_CONTEXT_MAX_HISTORY_
 AI_CONTEXT_MAX_TOTAL_CHARS = max(4000, int(os.getenv("AI_CONTEXT_MAX_TOTAL_CHARS", "48000")))
 AI_SESSION_TTL_SECONDS = max(900, int(os.getenv("AI_SESSION_TTL_SECONDS", "43200")))
 AI_SESSION_MAX_TOKENS = max(100, int(os.getenv("AI_SESSION_MAX_TOKENS", "5000")))
+AI_SESSION_SIGNING_SECRET = (
+    os.getenv("AI_SESSION_SIGNING_SECRET")
+    or os.getenv("JUPYTERHUB_API_TOKEN")
+    or "training-platform-ai-session-dev-secret"
+).strip()
 AI_WEB_SEARCH_CACHE_TTL_SECONDS = max(60, int(os.getenv("AI_WEB_SEARCH_CACHE_TTL_SECONDS", "3600")))
 AI_WEB_SEARCH_CACHE_MAX_ITEMS = max(50, int(os.getenv("AI_WEB_SEARCH_CACHE_MAX_ITEMS", "1000")))
 AI_INVOCATION_LOG_SECRET = os.getenv("AI_INVOCATION_LOG_SECRET", "").strip()

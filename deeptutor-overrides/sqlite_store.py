@@ -550,7 +550,11 @@ class SQLiteSessionStore:
         capability: str = "",
         events: list[dict[str, Any]] | None = None,
         attachments: list[dict[str, Any]] | None = None,
+        metadata: dict[str, Any] | None = None,
+        parent_message_id: int | None = None,
     ) -> int:
+        _ = metadata
+        _ = parent_message_id
         now = time.time()
         with self._connect() as conn:
             session = conn.execute(
@@ -602,6 +606,8 @@ class SQLiteSessionStore:
         capability: str = "",
         events: list[dict[str, Any]] | None = None,
         attachments: list[dict[str, Any]] | None = None,
+        metadata: dict[str, Any] | None = None,
+        parent_message_id: int | None = None,
     ) -> int:
         return await self._run(
             self._add_message_sync,
@@ -611,6 +617,8 @@ class SQLiteSessionStore:
             capability,
             events,
             attachments,
+            metadata,
+            parent_message_id,
         )
 
     def _delete_message_sync(self, message_id: int) -> bool:
@@ -701,7 +709,10 @@ class SQLiteSessionStore:
             {"id": row["id"], "role": row["role"], "content": row["content"] or ""} for row in rows
         ]
 
-    async def get_messages_for_context(self, session_id: str) -> list[dict[str, Any]]:
+    async def get_messages_for_context(
+        self, session_id: str, leaf_message_id: int | None = None
+    ) -> list[dict[str, Any]]:
+        _ = leaf_message_id
         return await self._run(self._get_messages_for_context_sync, session_id)
 
     def _list_sessions_sync(self, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:

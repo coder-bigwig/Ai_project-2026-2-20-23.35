@@ -101,9 +101,9 @@ describe('AdminStatsCenter', () => {
     jest.restoreAllMocks();
   });
 
-  it('keeps the original dashboard and student duration analytics without the added summary charts', async () => {
+  it('hides Jupyter usage monitor analytics for teachers while keeping student duration analytics', async () => {
     await act(async () => {
-      root.render(<AdminStatsCenter username="fit_admin" />);
+      root.render(<AdminStatsCenter username="teacher_001" userRole="teacher" />);
     });
 
     await act(async () => {
@@ -112,17 +112,48 @@ describe('AdminStatsCenter', () => {
 
     const text = container.textContent;
     expect(text).toContain('班级数');
-    expect(text).toContain('教师使用次数');
     expect(text).toContain('关键比率指标');
-    expect(text).toContain('Jupyter 活跃用户 Top 8');
     expect(text).toContain('学生实验用时');
     expect(text).toContain('学生实验用时热力矩阵');
     expect(text).toContain('最长耗时 Top 5');
     expect(container.querySelector('.admin-sc-duration-section')).not.toBeNull();
+    expect(text).not.toContain('在用教师');
+    expect(text).not.toContain('在用学生');
+    expect(text).not.toContain('教师使用次数');
+    expect(text).not.toContain('学生使用次数');
+    expect(text).not.toContain('教师使用时长');
+    expect(text).not.toContain('学生使用时长');
+    expect(text).not.toContain('教师在线率（Jupyter）');
+    expect(text).not.toContain('学生在线率（Jupyter）');
+    expect(text).not.toContain('老师 / 学生使用对比');
+    expect(text).not.toContain('Jupyter 活跃用户 Top 8');
     expect(text).not.toContain('新增分析');
     expect(text).not.toContain('学习完成分布');
     expect(text).not.toContain('教师 / 学生 Jupyter 使用对比');
     expect(text).not.toContain('实验平均用时 Top');
     expect(text).not.toContain('学生累计用时排行');
+  });
+
+  it('keeps Jupyter usage monitor analytics for admins', async () => {
+    await act(async () => {
+      root.render(<AdminStatsCenter username="fit_admin" userRole="admin" />);
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const text = container.textContent;
+    expect(text).toContain('在用教师');
+    expect(text).toContain('在用学生');
+    expect(text).toContain('教师使用次数');
+    expect(text).toContain('学生使用次数');
+    expect(text).toContain('教师使用时长');
+    expect(text).toContain('学生使用时长');
+    expect(text).toContain('教师在线率（Jupyter）');
+    expect(text).toContain('学生在线率（Jupyter）');
+    expect(text).toContain('老师 / 学生使用对比');
+    expect(text).toContain('Jupyter 活跃用户 Top 8');
+    expect(text).toContain('学生实验用时');
   });
 });

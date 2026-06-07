@@ -13,8 +13,10 @@ services:
     image: nginx:alpine
     ports:
       - "${TRAINING_HTTP_PORT:-80}:80"
+      - "${TRAINING_HTTPS_PORT:-443}:443"
     volumes:
       - ./nginx/nginx.server.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
     depends_on:
       - frontend
       - experiment-manager
@@ -195,13 +197,13 @@ services:
   deeptutor:
     image: ghcr.io/hkuds/deeptutor:latest
     ports:
-      - "127.0.0.1:${DEEPTUTOR_BACKEND_PORT:-18101}:18101"
-      - "127.0.0.1:${DEEPTUTOR_FRONTEND_PORT:-13782}:13782"
+      - "127.0.0.1:${DEEPTUTOR_BACKEND_PORT:-18101}:8001"
+      - "127.0.0.1:${DEEPTUTOR_FRONTEND_PORT:-13782}:3782"
     networks:
       - training-network
     environment:
-      BACKEND_PORT: 18101
-      FRONTEND_PORT: 13782
+      BACKEND_PORT: 8001
+      FRONTEND_PORT: 3782
       NEXT_PUBLIC_API_BASE_EXTERNAL: ${DEEPTUTOR_PUBLIC_API_BASE_EXTERNAL:-${DEEPTUTOR_PUBLIC_API_BASE:-/deeptutor-api}}
       NEXT_PUBLIC_API_BASE: ${DEEPTUTOR_PUBLIC_API_BASE:-${DEEPTUTOR_PUBLIC_API_BASE_EXTERNAL:-/deeptutor-api}}
       LLM_BINDING: ${DEEPTUTOR_LLM_BINDING:-deepseek}
@@ -232,10 +234,6 @@ services:
       - ./deeptutor-overrides/settings.py:/app/deeptutor/api/routers/settings.py:ro
       # Per-user workspaces + users.json; shared read-write with backend.
       - deeptutor-multi-user:/app/multi-user
-      # Override: make require_auth async so set_current_user (ContextVar)
-      # propagates to endpoint handlers. Without this, per-user PathService
-      # falls back to legacy /app/data/user/ for all HTTP endpoints.
-      - ./deeptutor-overrides/auth.py:/app/deeptutor/api/routers/auth.py:ro
       # Local SSO isolation overrides: scope chat_history.db by dt_token uid
       # for both HTTP session APIs and the unified chat WebSocket.
       - ./deeptutor-overrides/user_context.py:/app/deeptutor/user_context.py:ro
@@ -244,7 +242,7 @@ services:
       - ./deeptutor-overrides/sqlite_store.py:/app/deeptutor/services/session/sqlite_store.py:ro
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:18101/"]
+      test: ["CMD", "curl", "-f", "http://localhost:8001/"]
       interval: 30s
       timeout: 10s
       retries: 3

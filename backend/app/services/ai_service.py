@@ -2,7 +2,10 @@ from fastapi import HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Tuple
 from datetime import datetime, timezone
+import base64
 from copy import deepcopy
+import hashlib
+import hmac
 import html
 import json
 import re
@@ -27,6 +30,7 @@ from ..config import (
     AI_CONTEXT_MAX_TOTAL_CHARS,
     AI_SESSION_TTL_SECONDS,
     AI_SESSION_MAX_TOKENS,
+    AI_SESSION_SIGNING_SECRET,
     AI_WEB_SEARCH_CACHE_TTL_SECONDS,
     AI_WEB_SEARCH_CACHE_MAX_ITEMS,
     TAVILY_API_KEY,
@@ -62,6 +66,64 @@ def _cleanup_ai_sessions(now_ts: Optional[float] = None):
         ai_session_tokens_db.pop(token, None)
 
 
+def _b64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _b64url_decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode((value + padding).encode("ascii"))
+
+
+def _sign_ai_session_payload(encoded_payload: str) -> str:
+    digest = hmac.new(
+        AI_SESSION_SIGNING_SECRET.encode("utf-8"),
+        encoded_payload.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+    return _b64url_encode(digest)
+
+
+def _create_signed_ai_session_token(username: str, now_ts: float) -> str:
+    payload = {
+        "u": username,
+        "iat": int(now_ts),
+        "exp": int(now_ts + AI_SESSION_TTL_SECONDS),
+        "n": secrets.token_urlsafe(8),
+    }
+    encoded_payload = _b64url_encode(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    )
+    signature = _sign_ai_session_payload(encoded_payload)
+    return f"v1.{encoded_payload}.{signature}"
+
+
+def _resolve_signed_ai_session_user(token: str, now_ts: float) -> str:
+    parts = token.split(".")
+    if len(parts) != 3 or parts[0] != "v1":
+        return ""
+
+    encoded_payload = parts[1]
+    signature = parts[2]
+    expected_signature = _sign_ai_session_payload(encoded_payload)
+    if not hmac.compare_digest(signature, expected_signature):
+        return ""
+
+    try:
+        payload = json.loads(_b64url_decode(encoded_payload).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return ""
+
+    if not isinstance(payload, dict):
+        return ""
+
+    username = _normalize_text(payload.get("u"))
+    expires_at = float(payload.get("exp") or 0.0)
+    if not username or expires_at <= now_ts:
+        return ""
+    return username
+
+
 def _create_ai_session_token(username: str) -> str:
     normalized_user = _normalize_text(username)
     if not normalized_user:
@@ -70,7 +132,7 @@ def _create_ai_session_token(username: str) -> str:
     now_ts = time.time()
     _cleanup_ai_sessions(now_ts)
 
-    token = secrets.token_urlsafe(36)
+    token = _create_signed_ai_session_token(normalized_user, now_ts)
     ai_session_tokens_db[token] = {
         "username": normalized_user,
         "expires_at": now_ts + AI_SESSION_TTL_SECONDS,
@@ -85,6 +147,10 @@ def _resolve_ai_session_user(token: str) -> str:
 
     now_ts = time.time()
     _cleanup_ai_sessions(now_ts)
+
+    signed_user = _resolve_signed_ai_session_user(normalized_token, now_ts)
+    if signed_user:
+        return signed_user
 
     session_item = ai_session_tokens_db.get(normalized_token) or {}
     username = _normalize_text(session_item.get("username"))

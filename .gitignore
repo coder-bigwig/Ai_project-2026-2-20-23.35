@@ -21,6 +21,12 @@ test_*.py
 *.spec.tsx
 !tests/
 !tests/test_deeptutor_static_assets_proxy.py
+!tests/test_deeptutor_override_compat.py
+!tests/usage_monitor_events_test.py
+!tests/ai_session_token_test.py
+
+# Local TLS private keys
+nginx/ssl/*.key
 
 # Node / frontend
 node_modules/

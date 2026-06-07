@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CodeBuddy HTTPS 修复</title>
+  <style>
+    body { font-family: Arial, "Microsoft YaHei", sans-serif; max-width: 720px; margin: 48px auto; line-height: 1.7; color: #222; }
+    .box { border: 1px solid #ddd; border-radius: 8px; padding: 24px; }
+    a.button { display: inline-block; padding: 10px 16px; background: #1677ff; color: #fff; text-decoration: none; border-radius: 6px; }
+    code { background: #f5f5f5; padding: 2px 4px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h2>修复 CodeBuddy HTTPS 访问</h2>
+    <p>如果 CodeBuddy 或浏览器提示证书不受信任，请下载并安装培训平台证书。</p>
+    <p><a class="button" href="/install-https-cert-win7.bat">下载安装脚本</a></p>
+    <ol>
+      <li>下载并运行 <code>install-https-cert-win7.bat</code>。</li>
+      <li>如果浏览器或系统询问，请选择保留、运行或允许该文件。</li>
+      <li>安装完成后，关闭所有浏览器窗口。</li>
+      <li>重新打开 <code>https://172.29.150.25/</code>，再启动 VS Code / CodeBuddy。</li>
+    </ol>
+  </div>
+  <script>
+    setTimeout(function () {
+      window.location.href = "/install-https-cert-win7.bat";
+    }, 800);
+  </script>
+</body>
+</html>

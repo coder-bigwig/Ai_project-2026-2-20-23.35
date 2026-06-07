@@ -881,7 +881,9 @@ function DurationAnalyticsSection({ models, filters, onFiltersChange }) {
   );
 }
 
-function AdminStatsCenter({ username }) {
+function AdminStatsCenter({ username, userRole }) {
+  const isAdminView = String(userRole || '').trim().toLowerCase() === 'admin'
+    || String(username || '').trim().toLowerCase() === 'admin';
   const [coreStats, setCoreStats] = useState({
     classCount: 0,
     visibleStudentCount: 0,
@@ -952,6 +954,10 @@ function AdminStatsCenter({ username }) {
   }, [username]);
 
   const loadUsageMonitor = useCallback(async ({ silent = false } = {}) => {
+    if (!isAdminView) {
+      setUsageMonitor({ summary: {}, by_role: {}, users: [], generated_at: '', scope: '' });
+      return;
+    }
     setLoadingUsage(true);
     if (!silent) setErrorMessage('');
     try {
@@ -970,7 +976,7 @@ function AdminStatsCenter({ username }) {
     } finally {
       setLoadingUsage(false);
     }
-  }, [username]);
+  }, [isAdminView, username]);
 
   const loadAll = useCallback(async ({ silent = false } = {}) => {
     await Promise.all([loadCoreStats({ silent }), loadUsageMonitor({ silent })]);
@@ -1032,12 +1038,14 @@ function AdminStatsCenter({ username }) {
     { code: 'PB', icon: 'rocket', tone: 'amber', label: '已发布实验', value: formatCount(coreStats.publishedExperimentCount), note: '处于发布状态的实验数量' },
     { code: 'AC', icon: 'activity', tone: 'violet', label: '学习活动', value: formatCount(coreStats.activityCount), note: '学生进度记录总条数' },
     { code: 'RT', icon: 'check-circle', tone: 'pink', label: '完成率', value: formatPercent(coreStats.completionRate), note: `已完成 ${formatCount(coreStats.completedActivityCount)} / ${formatCount(coreStats.activityCount)}` },
-    { code: 'TU', icon: 'monitor', tone: 'blue', label: '在用教师', value: formatCount(teacherActive), note: 'Jupyter 当前在线/启动中的教师' },
-    { code: 'SU', icon: 'monitor', tone: 'green', label: '在用学生', value: formatCount(studentActive), note: 'Jupyter 当前在线/启动中的学生' },
-    { code: 'TC', icon: 'repeat', tone: 'slate', label: '教师使用次数', value: formatCount(teacherSessionCount), note: 'Jupyter 教师会话启动次数' },
-    { code: 'SC', icon: 'repeat', tone: 'violet', label: '学生使用次数', value: formatCount(studentSessionCount), note: 'Jupyter 学生会话启动次数' },
-    { code: 'TT', icon: 'clock', tone: 'blue', label: '教师使用时长', value: formatDuration(teacherDurationSeconds), note: 'Jupyter 教师累计使用时长' },
-    { code: 'STM', icon: 'clock', tone: 'green', label: '学生使用时长', value: formatDuration(studentDurationSeconds), note: 'Jupyter 学生累计使用时长' },
+    ...(isAdminView ? [
+      { code: 'TU', icon: 'monitor', tone: 'blue', label: '在用教师', value: formatCount(teacherActive), note: 'Jupyter 当前在线/启动中的教师' },
+      { code: 'SU', icon: 'monitor', tone: 'green', label: '在用学生', value: formatCount(studentActive), note: 'Jupyter 当前在线/启动中的学生' },
+      { code: 'TC', icon: 'repeat', tone: 'slate', label: '教师使用次数', value: formatCount(teacherSessionCount), note: 'Jupyter 教师会话启动次数' },
+      { code: 'SC', icon: 'repeat', tone: 'violet', label: '学生使用次数', value: formatCount(studentSessionCount), note: 'Jupyter 学生会话启动次数' },
+      { code: 'TT', icon: 'clock', tone: 'blue', label: '教师使用时长', value: formatDuration(teacherDurationSeconds), note: 'Jupyter 教师累计使用时长' },
+      { code: 'STM', icon: 'clock', tone: 'green', label: '学生使用时长', value: formatDuration(studentDurationSeconds), note: 'Jupyter 学生累计使用时长' },
+    ] : []),
   ];
 
   const ratioMetrics = [
@@ -1065,22 +1073,24 @@ function AdminStatsCenter({ username }) {
       note: `活跃学生 ${formatCount(coreStats.activeStudentCount)} / ${formatCount(coreStats.visibleStudentCount)}`,
       color: '#37b06e',
     },
-    {
-      key: 'teacher-online-rate',
-      label: '教师在线率（Jupyter）',
-      percent: teacherOnlineRate,
-      valueText: formatPercent(teacherOnlineRate),
-      note: teacherTracked > 0 ? `在线教师 ${formatCount(teacherActive)} / ${formatCount(teacherTracked)}` : '暂无教师 Jupyter 使用记录',
-      color: '#7a6be8',
-    },
-    {
-      key: 'student-online-rate',
-      label: '学生在线率（Jupyter）',
-      percent: studentOnlineRate,
-      valueText: formatPercent(studentOnlineRate),
-      note: studentTracked > 0 ? `在线学生 ${formatCount(studentActive)} / ${formatCount(studentTracked)}` : '暂无学生 Jupyter 使用记录',
-      color: '#2aa6b8',
-    },
+    ...(isAdminView ? [
+      {
+        key: 'teacher-online-rate',
+        label: '教师在线率（Jupyter）',
+        percent: teacherOnlineRate,
+        valueText: formatPercent(teacherOnlineRate),
+        note: teacherTracked > 0 ? `在线教师 ${formatCount(teacherActive)} / ${formatCount(teacherTracked)}` : '暂无教师 Jupyter 使用记录',
+        color: '#7a6be8',
+      },
+      {
+        key: 'student-online-rate',
+        label: '学生在线率（Jupyter）',
+        percent: studentOnlineRate,
+        valueText: formatPercent(studentOnlineRate),
+        note: studentTracked > 0 ? `在线学生 ${formatCount(studentActive)} / ${formatCount(studentTracked)}` : '暂无学生 Jupyter 使用记录',
+        color: '#2aa6b8',
+      },
+    ] : []),
   ];
 
   const usageCompareGroups = [
@@ -1128,9 +1138,9 @@ function AdminStatsCenter({ username }) {
     })
     .slice(0, 8);
 
-  const isRefreshing = loadingCore || loadingUsage;
-  const updatedAt = usageMonitor?.generated_at || coreStats.updatedAt;
-  const scopeText = usageMonitor?.scope === 'jupyter_sessions' ? 'Jupyter 会话统计口径' : '实时统计口径';
+  const isRefreshing = loadingCore || (isAdminView && loadingUsage);
+  const updatedAt = (isAdminView && usageMonitor?.generated_at) || coreStats.updatedAt;
+  const scopeText = isAdminView && usageMonitor?.scope === 'jupyter_sessions' ? 'Jupyter 会话统计口径' : '学习进度统计口径';
 
   return (
     <section className="admin-sc-panel">
@@ -1174,20 +1184,24 @@ function AdminStatsCenter({ username }) {
       <div className="admin-sc-charts">
         <MetricMeterPanel
           title="关键比率指标"
-          subtitle="用于判断教学资源发布、学习完成与 Jupyter 实时活跃覆盖情况"
+          subtitle={isAdminView ? '用于判断教学资源发布、学习完成与 Jupyter 实时活跃覆盖情况' : '用于判断教学资源发布与学习完成情况'}
           metrics={ratioMetrics}
         />
-        <CompareBarsPanel
-          title="老师 / 学生使用对比"
-          subtitle="对比当前在线、累计会话次数与累计使用时长（Jupyter 会话口径）"
-          groups={usageCompareGroups}
-          footerStats={usageCompareFooters}
-        />
-        <TopUsersPanel
-          title="Jupyter 活跃用户 Top 8"
-          subtitle="优先展示当前在线用户，其次按累计使用时长排序"
-          rows={topUsers}
-        />
+        {isAdminView ? (
+          <>
+            <CompareBarsPanel
+              title="老师 / 学生使用对比"
+              subtitle="对比当前在线、累计会话次数与累计使用时长（Jupyter 会话口径）"
+              groups={usageCompareGroups}
+              footerStats={usageCompareFooters}
+            />
+            <TopUsersPanel
+              title="Jupyter 活跃用户 Top 8"
+              subtitle="优先展示当前在线用户，其次按累计使用时长排序"
+              rows={topUsers}
+            />
+          </>
+        ) : null}
       </div>
 
       <DurationAnalyticsSection

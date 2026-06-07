@@ -95,6 +95,17 @@ def save_ui_settings(settings: dict[str, Any]) -> None:
     with open(SETTINGS_FILE, "w", encoding="utf-8") as handle:
         json.dump(settings, handle, ensure_ascii=False, indent=2)
 
+def get_enabled_optional_tools() -> list[str]:
+    settings = load_ui_settings()
+    candidates = settings.get("enabled_optional_tools")
+    if candidates is None:
+        candidates = settings.get("optional_tools")
+    if candidates is None and isinstance(settings.get("tools"), dict):
+        candidates = settings["tools"].get("enabled_optional_tools")
+    if not isinstance(candidates, list):
+        return []
+    return [str(item) for item in candidates if isinstance(item, str) and item]
+
 
 def _provider_choices() -> dict[str, list[dict[str, str]]]:
     """Build dropdown options for provider selection, keyed by service type."""

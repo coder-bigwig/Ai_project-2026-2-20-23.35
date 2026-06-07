@@ -206,12 +206,12 @@ function getTeacherActiveTabKey(username, isAdmin) {
 function TeacherDashboard({ username, userRole, onLogout }) {
   const navigate = useNavigate();
   const isAdmin = userRole === 'admin' || String(username || '').trim() === 'admin';
-  const tabs = useMemo(() => (isAdmin ? [...TABS, ADMIN_STATS_TAB, ADMIN_TAB] : TABS), [isAdmin]);
+  const tabs = useMemo(() => (isAdmin ? [...TABS, ADMIN_STATS_TAB, ADMIN_TAB] : [...TABS, ADMIN_STATS_TAB]), [isAdmin]);
   const defaultActiveTab = isAdmin ? 'admin-stats' : 'courses';
   const activeTabStorageKey = useMemo(() => getTeacherActiveTabKey(username, isAdmin), [isAdmin, username]);
   const [activeTab, setActiveTab] = useState(() => {
     const stored = localStorage.getItem(getTeacherActiveTabKey(username, isAdmin));
-    const availableTabs = isAdmin ? [...TABS, ADMIN_STATS_TAB, ADMIN_TAB] : TABS;
+    const availableTabs = isAdmin ? [...TABS, ADMIN_STATS_TAB, ADMIN_TAB] : [...TABS, ADMIN_STATS_TAB];
     return availableTabs.some((item) => item.key === stored) ? stored : (isAdmin ? 'admin-stats' : 'courses');
   });
   const [courses, setCourses] = useState([]);
@@ -756,7 +756,7 @@ function TeacherDashboard({ username, userRole, onLogout }) {
 
           {activeTab === 'admin-stats' ? (
             <div className="teacher-lab-section">
-              <AdminStatsCenter username={username} />
+              <AdminStatsCenter username={username} userRole={userRole} />
             </div>
           ) : null}
 

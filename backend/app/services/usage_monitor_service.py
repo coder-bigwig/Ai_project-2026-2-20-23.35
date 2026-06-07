@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +11,7 @@ from .kv_policy_service import get_kv_json
 
 USAGE_MONITOR_KV_KEY = "admin_usage_monitor_v1"
 USAGE_MONITOR_USER_KEY_PREFIX = f"{USAGE_MONITOR_KV_KEY}:user:"
+USAGE_MONITOR_EVENT_KEY_PREFIX = f"{USAGE_MONITOR_KV_KEY}:event:"
 USAGE_MONITOR_VERSION = 1
 SESSION_IDLE_TIMEOUT_SECONDS = 15 * 60
 TRACKED_USAGE_ROLES = {"teacher", "student", "admin"}
@@ -38,6 +40,11 @@ def _to_iso(dt: datetime | None) -> str:
         return ""
     normalized = dt.astimezone(timezone.utc)
     return normalized.isoformat().replace("+00:00", "Z")
+
+
+def _event_key(dt: datetime) -> str:
+    compact_time = _to_iso(dt).replace("-", "").replace(":", "").replace(".", "")
+    return f"{USAGE_MONITOR_EVENT_KEY_PREFIX}{compact_time}:{uuid4().hex}"
 
 
 def _clamp_non_negative_int(value) -> int:
@@ -152,6 +159,36 @@ async def save_usage_monitor_user(db: AsyncSession, *, username: str, entry: dic
     await KVStoreRepository(db).upsert(_user_kv_key(normalized_username), payload)
 
 
+async def append_usage_monitor_event(
+    db: AsyncSession,
+    *,
+    event_type: str,
+    username: str,
+    role: str,
+    event_at: datetime | None = None,
+    **metadata,
+) -> None:
+    normalized_username = normalize_text(username)
+    normalized_role = normalize_text(role).lower()
+    normalized_event_type = normalize_text(event_type)
+    if not normalized_username or normalized_role not in TRACKED_USAGE_ROLES or not normalized_event_type:
+        return
+
+    timestamp = event_at or _now_utc()
+    payload = {
+        "version": USAGE_MONITOR_VERSION,
+        "event_type": normalized_event_type,
+        "username": normalized_username,
+        "role": normalized_role,
+        "source": "jupyter",
+        "event_at": _to_iso(timestamp),
+    }
+    for key, value in metadata.items():
+        if value is not None:
+            payload[key] = value
+    await KVStoreRepository(db).upsert(_event_key(timestamp), payload)
+
+
 def ensure_user_entry(state: dict, *, username: str, role: str) -> dict:
     normalized_username = normalize_text(username)
     normalized_role = normalize_text(role).lower() or "student"
@@ -232,9 +269,19 @@ async def record_jupyter_session_start(
 
     entry = await load_usage_monitor_user(db, username=normalized_username, role=normalized_role)
     entry["role"] = normalized_role
-    changed = ensure_active_session(entry, started_at=started_at or _now_utc(), source="jupyter")
+    resolved_started_at = started_at or _now_utc()
+    changed = ensure_active_session(entry, started_at=resolved_started_at, source="jupyter")
     if changed:
         await save_usage_monitor_user(db, username=normalized_username, entry=entry)
+        await append_usage_monitor_event(
+            db,
+            event_type="platform_start",
+            username=normalized_username,
+            role=normalized_role,
+            event_at=resolved_started_at,
+            started_at=_to_iso(resolved_started_at),
+            session_count=_clamp_non_negative_int(entry.get("session_count")),
+        )
     return changed
 
 
@@ -385,12 +432,27 @@ async def sync_and_build_jupyter_usage_report(
         server_pending = bool(raw_hub_state.get("server_pending"))
         hub_last_activity_dt = _parse_dt(raw_hub_state.get("last_activity"))
         hub_server_started_dt = _parse_dt(raw_hub_state.get("server_started"))
+        had_active_session = _parse_dt(entry.get("active_session_started_at")) is not None
 
         if server_running or server_pending:
             session_start_dt = hub_server_started_dt or _parse_dt(entry.get("active_session_started_at")) or hub_last_activity_dt or now
             if ensure_active_session(entry, started_at=session_start_dt, source="jupyter"):
                 changed = True
                 changed_users.add(username)
+                if not had_active_session:
+                    await append_usage_monitor_event(
+                        db,
+                        event_type="hub_reconcile_start",
+                        username=username,
+                        role=role,
+                        event_at=now,
+                        started_at=_to_iso(session_start_dt),
+                        server_running=server_running,
+                        server_pending=server_pending,
+                        server_started=normalize_text(raw_hub_state.get("server_started")),
+                        hub_last_activity=normalize_text(raw_hub_state.get("last_activity")),
+                        session_count=_clamp_non_negative_int(entry.get("session_count")),
+                    )
             if set_last_seen(entry, hub_last_activity_dt or now):
                 changed = True
                 changed_users.add(username)
@@ -400,17 +462,53 @@ async def sync_and_build_jupyter_usage_report(
                 changed_users.add(username)
             if _parse_dt(entry.get("active_session_started_at")) is not None:
                 ended_at = hub_last_activity_dt or _parse_dt(entry.get("last_seen_at")) or now
+                previous_total_seconds = _clamp_non_negative_float(entry.get("total_seconds"))
                 if close_active_session(entry, ended_at=ended_at):
                     changed = True
                     changed_users.add(username)
+                    duration_seconds = round(
+                        _clamp_non_negative_float(entry.get("total_seconds")) - previous_total_seconds,
+                        3,
+                    )
+                    await append_usage_monitor_event(
+                        db,
+                        event_type="hub_reconcile_stop",
+                        username=username,
+                        role=role,
+                        event_at=now,
+                        ended_at=_to_iso(ended_at),
+                        duration_seconds=duration_seconds,
+                        server_running=server_running,
+                        server_pending=server_pending,
+                        hub_last_activity=normalize_text(raw_hub_state.get("last_activity")),
+                        session_count=_clamp_non_negative_int(entry.get("session_count")),
+                    )
 
         active_start_dt = _parse_dt(entry.get("active_session_started_at"))
         if active_start_dt is not None:
             last_seen_dt = _parse_dt(entry.get("last_seen_at"))
             if not server_running and not server_pending and last_seen_dt and (now - last_seen_dt).total_seconds() >= timeout_seconds:
+                previous_total_seconds = _clamp_non_negative_float(entry.get("total_seconds"))
                 if close_active_session(entry, ended_at=last_seen_dt):
                     changed = True
                     changed_users.add(username)
+                    duration_seconds = round(
+                        _clamp_non_negative_float(entry.get("total_seconds")) - previous_total_seconds,
+                        3,
+                    )
+                    await append_usage_monitor_event(
+                        db,
+                        event_type="hub_reconcile_timeout",
+                        username=username,
+                        role=role,
+                        event_at=now,
+                        ended_at=_to_iso(last_seen_dt),
+                        duration_seconds=duration_seconds,
+                        server_running=server_running,
+                        server_pending=server_pending,
+                        hub_last_activity=entry.get("last_seen_at", ""),
+                        session_count=_clamp_non_negative_int(entry.get("session_count")),
+                    )
 
         active_session_seconds = _active_session_seconds(entry, now=now)
         total_seconds = _clamp_non_negative_float(entry.get("total_seconds"))

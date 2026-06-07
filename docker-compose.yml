@@ -249,10 +249,6 @@ services:
       - deeptutor-knowledge-bases:/app/data/knowledge_bases
       # Per-user workspaces + users.json; shared read-write with backend.
       - deeptutor-multi-user:/app/multi-user
-      # Override: make require_auth async so set_current_user (ContextVar)
-      # propagates to endpoint handlers. Without this, per-user PathService
-      # falls back to legacy /app/data/user/ for all HTTP endpoints.
-      - ./deeptutor-overrides/auth.py:/app/deeptutor/api/routers/auth.py:ro
       # Local SSO isolation overrides: scope chat_history.db by dt_token uid
       # for both HTTP session APIs and the unified chat WebSocket.
       - ./deeptutor-overrides/user_context.py:/app/deeptutor/user_context.py:ro
