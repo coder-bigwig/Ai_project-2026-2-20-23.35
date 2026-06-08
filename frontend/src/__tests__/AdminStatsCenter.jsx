@@ -144,8 +144,8 @@ describe('AdminStatsCenter', () => {
     });
 
     const text = container.textContent;
-    expect(text).toContain('在用教师');
-    expect(text).toContain('在用学生');
+    expect(text).not.toContain('在用教师');
+    expect(text).not.toContain('在用学生');
     expect(text).toContain('教师使用次数');
     expect(text).toContain('学生使用次数');
     expect(text).toContain('教师使用时长');

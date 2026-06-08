@@ -1039,8 +1039,6 @@ function AdminStatsCenter({ username, userRole }) {
     { code: 'AC', icon: 'activity', tone: 'violet', label: '学习活动', value: formatCount(coreStats.activityCount), note: '学生进度记录总条数' },
     { code: 'RT', icon: 'check-circle', tone: 'pink', label: '完成率', value: formatPercent(coreStats.completionRate), note: `已完成 ${formatCount(coreStats.completedActivityCount)} / ${formatCount(coreStats.activityCount)}` },
     ...(isAdminView ? [
-      { code: 'TU', icon: 'monitor', tone: 'blue', label: '在用教师', value: formatCount(teacherActive), note: 'Jupyter 当前在线/启动中的教师' },
-      { code: 'SU', icon: 'monitor', tone: 'green', label: '在用学生', value: formatCount(studentActive), note: 'Jupyter 当前在线/启动中的学生' },
       { code: 'TC', icon: 'repeat', tone: 'slate', label: '教师使用次数', value: formatCount(teacherSessionCount), note: 'Jupyter 教师会话启动次数' },
       { code: 'SC', icon: 'repeat', tone: 'violet', label: '学生使用次数', value: formatCount(studentSessionCount), note: 'Jupyter 学生会话启动次数' },
       { code: 'TT', icon: 'clock', tone: 'blue', label: '教师使用时长', value: formatDuration(teacherDurationSeconds), note: 'Jupyter 教师累计使用时长' },
