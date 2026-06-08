@@ -195,7 +195,7 @@ services:
     restart: unless-stopped
 
   deeptutor:
-    image: ghcr.io/hkuds/deeptutor:latest
+    image: ${DEEPTUTOR_IMAGE:-ghcr.io/hkuds/deeptutor@sha256:2a6861732eb0f2c93c1fb8ec3316d912aa6fde84aed61918cfc6bcfc426f4a61}
     ports:
       - "127.0.0.1:${DEEPTUTOR_BACKEND_PORT:-18101}:8001"
       - "127.0.0.1:${DEEPTUTOR_FRONTEND_PORT:-13782}:3782"

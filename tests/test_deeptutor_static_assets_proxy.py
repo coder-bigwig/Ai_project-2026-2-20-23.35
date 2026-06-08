@@ -17,7 +17,7 @@ def test_nginx_proxies_deeptutor_root_static_images() -> None:
 
     for config_path in [ROOT / "nginx" / "nginx.conf"]:
         config = config_path.read_text(encoding="utf-8")
-        assert "deeptutor:13782" in config
+        assert "deeptutor:3782" in config
         for asset in required_assets:
             assert asset in config, f"{config_path} does not proxy /{asset}"
 
@@ -39,3 +39,27 @@ def test_server_deeptutor_proxy_uses_current_container_ports() -> None:
     assert "http://localhost:8001/" in compose
     assert "deeptutor:8001" in nginx
     assert "deeptutor:3782" in nginx
+
+
+def test_local_deeptutor_proxy_uses_current_container_ports() -> None:
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    nginx = (ROOT / "nginx" / "nginx.conf").read_text(encoding="utf-8")
+
+    assert '${DEEPTUTOR_BACKEND_PORT:-18101}:8001' in compose
+    assert '${DEEPTUTOR_FRONTEND_PORT:-13782}:3782' in compose
+    assert "NEXT_PUBLIC_API_BASE_EXTERNAL:" in compose
+    assert "BACKEND_PORT: 8001" in compose
+    assert "FRONTEND_PORT: 3782" in compose
+    assert "http://localhost:8001/" in compose
+    assert "deeptutor:8001" in nginx
+    assert "deeptutor:3782" in nginx
+
+
+def test_deeptutor_space_route_is_proxied_to_deeptutor_frontend() -> None:
+    local_nginx = (ROOT / "nginx" / "nginx.conf").read_text(encoding="utf-8")
+    server_nginx = (ROOT / "nginx" / "nginx.server.conf").read_text(encoding="utf-8")
+
+    assert "location /space" in local_nginx
+    local_space_block = local_nginx.split("location /space", 1)[1].split("location /settings", 1)[0]
+    assert "deeptutor:3782" in local_space_block
+    assert "chat|agents|co-writer|book|knowledge|memory|space|settings" in server_nginx

@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 import logging
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -236,6 +236,7 @@ app.mount(
 from deeptutor.api.routers import (
     agent_config,
     book,
+    capabilities_settings,
     chat,
     co_writer,
     dashboard,
@@ -253,27 +254,89 @@ from deeptutor.api.routers import (
     unified_ws,
     vision_solver,
 )
+from deeptutor.api.routers import tools as tools_router
+
+from deeptutor.multi_user.context import (
+    reset_current_user as reset_multi_user_context,
+    set_current_user as set_multi_user_context,
+)
+from deeptutor.multi_user.models import CurrentUser
+from deeptutor.multi_user.paths import scope_for_user
+
+
+async def apply_sso_user_context(request: Request):
+    try:
+        user = user_from_token(token_from_http_request(request))
+    except UserContextError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+    if user is None:
+        yield None
+        return
+
+    user_id, username = user
+    current_user = CurrentUser(
+        id=user_id,
+        username=username or user_id,
+        role="user",
+        scope=scope_for_user(user_id, is_admin=False),
+    )
+    token = set_multi_user_context(current_user)
+    try:
+        yield current_user
+    finally:
+        reset_multi_user_context(token)
+
+
+_user_context = [Depends(apply_sso_user_context)]
 
 # Include routers
 app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
 app.include_router(question.router, prefix="/api/v1/question", tags=["question"])
-app.include_router(knowledge.router, prefix="/api/v1/knowledge", tags=["knowledge"])
-app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])
-app.include_router(co_writer.router, prefix="/api/v1/co_writer", tags=["co_writer"])
-app.include_router(notebook.router, prefix="/api/v1/notebook", tags=["notebook"])
-app.include_router(book.router, prefix="/api/v1/book", tags=["book"])
-app.include_router(memory.router, prefix="/api/v1/memory", tags=["memory"])
-app.include_router(sessions.router, prefix="/api/v1/sessions", tags=["sessions"])
 app.include_router(
-    question_notebook.router, prefix="/api/v1/question-notebook", tags=["question-notebook"]
+    knowledge.router,
+    prefix="/api/v1/knowledge",
+    tags=["knowledge"],
+    dependencies=_user_context,
+)
+app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])
+app.include_router(
+    co_writer.router,
+    prefix="/api/v1/co_writer",
+    tags=["co_writer"],
+    dependencies=_user_context,
+)
+app.include_router(
+    notebook.router,
+    prefix="/api/v1/notebook",
+    tags=["notebook"],
+    dependencies=_user_context,
+)
+app.include_router(book.router, prefix="/api/v1/book", tags=["book"], dependencies=_user_context)
+app.include_router(memory.router, prefix="/api/v1/memory", tags=["memory"], dependencies=_user_context)
+app.include_router(capabilities_settings.router, prefix="/api/v1/capabilities", tags=["capabilities"])
+app.include_router(
+    sessions.router, prefix="/api/v1/sessions", tags=["sessions"], dependencies=_user_context
+)
+app.include_router(
+    question_notebook.router,
+    prefix="/api/v1/question-notebook",
+    tags=["question-notebook"],
+    dependencies=_user_context,
 )
 app.include_router(settings.router, prefix="/api/v1/settings", tags=["settings"])
 app.include_router(skills.router, prefix="/api/v1/skills", tags=["skills"])
+app.include_router(tools_router.router, prefix="/api/v1/tools", tags=["tools"])
 app.include_router(system.router, prefix="/api/v1/system", tags=["system"])
 app.include_router(plugins_api.router, prefix="/api/v1/plugins", tags=["plugins"])
 app.include_router(agent_config.router, prefix="/api/v1/agent-config", tags=["agent-config"])
 app.include_router(vision_solver.router, prefix="/api/v1", tags=["vision-solver"])
-app.include_router(tutorbot.router, prefix="/api/v1/tutorbot", tags=["tutorbot"])
+app.include_router(
+    tutorbot.router,
+    prefix="/api/v1/tutorbot",
+    tags=["tutorbot"],
+    dependencies=_user_context,
+)
 
 @app.get("/api/v1/agent-config", tags=["agent-config"])
 async def get_agent_config_root():

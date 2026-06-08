@@ -210,15 +210,16 @@ services:
 
   # DeepTutor 智能导师服务
   deeptutor:
-    image: ghcr.io/hkuds/deeptutor:latest
+    image: ${DEEPTUTOR_IMAGE:-ghcr.io/hkuds/deeptutor@sha256:2a6861732eb0f2c93c1fb8ec3316d912aa6fde84aed61918cfc6bcfc426f4a61}
     ports:
-      - "${DEEPTUTOR_BACKEND_PORT:-18101}:18101"
-      - "${DEEPTUTOR_FRONTEND_PORT:-13782}:13782"
+      - "${DEEPTUTOR_BACKEND_PORT:-18101}:8001"
+      - "${DEEPTUTOR_FRONTEND_PORT:-13782}:3782"
     networks:
       - training-network
     environment:
-      BACKEND_PORT: 18101
-      FRONTEND_PORT: 13782
+      BACKEND_PORT: 8001
+      FRONTEND_PORT: 3782
+      NEXT_PUBLIC_API_BASE_EXTERNAL: ${DEEPTUTOR_PUBLIC_API_BASE_EXTERNAL:-${DEEPTUTOR_PUBLIC_API_BASE:-/deeptutor-api}}
       NEXT_PUBLIC_API_BASE: ${DEEPTUTOR_PUBLIC_API_BASE:-/deeptutor-api}
       LLM_BINDING: ${DEEPTUTOR_LLM_BINDING:-deepseek}
       LLM_MODEL: ${DEEPTUTOR_LLM_MODEL:-deepseek-chat}
@@ -257,7 +258,7 @@ services:
       - ./deeptutor-overrides/sqlite_store.py:/app/deeptutor/services/session/sqlite_store.py:ro
     restart: unless-stopped
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:18101/" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:8001/" ]
       interval: 30s
       timeout: 10s
       retries: 3
