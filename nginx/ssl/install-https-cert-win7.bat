@@ -1,7 +1,7 @@
 @echo off
 setlocal
-set CERT_URL=http://172.29.150.25/training-platform.crt
-set CERT_FILE=%TEMP%\training-platform-172.29.150.25.crt
+set CERT_URL=http://112.5.137.43:15027/training-platform.crt
+set CERT_FILE=%TEMP%\training-platform-112.5.137.43-15027.crt
 
 echo Downloading training platform certificate...
 certutil -urlcache -f "%CERT_URL%" "%CERT_FILE%"
@@ -13,8 +13,8 @@ if errorlevel 1 goto fail
 
 echo.
 echo Certificate installed.
-echo Close ALL browser windows, then open https://172.29.150.25/
-echo If Chrome still shows unsafe, clear site data for 172.29.150.25 and open again.
+echo Close ALL browser windows, then open https://112.5.137.43:15027/
+echo If Chrome still shows unsafe, clear site data for 112.5.137.43:15027 and open again.
 echo.
 pause
 exit /b 0

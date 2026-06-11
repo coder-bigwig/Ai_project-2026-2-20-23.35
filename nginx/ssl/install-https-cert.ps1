@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
-$certUrl = "http://172.29.150.25/training-platform.crt"
-$certPath = Join-Path $env:TEMP "training-platform-172.29.150.25.crt"
+$certUrl = "http://112.5.137.43:15027/training-platform.crt"
+$certPath = Join-Path $env:TEMP "training-platform-112.5.137.43-15027.crt"
 
 Write-Host "Downloading training platform certificate..."
 Invoke-WebRequest -Uri $certUrl -OutFile $certPath -UseBasicParsing
@@ -13,5 +13,5 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host ""
-Write-Host "Installed. Close all browser windows, then open: https://172.29.150.25/"
-Write-Host "If the browser still shows old status, clear site data for 172.29.150.25 and open it again."
+Write-Host "Installed. Close all browser windows, then open: https://112.5.137.43:15027/"
+Write-Host "If the browser still shows old status, clear site data for 112.5.137.43:15027 and open it again."
